@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.DoubleAdder;
  * <p>This aggregator supports generating DELTA or CUMULATIVE sums, as well as monotonic or
  * non-monotonic.
  */
-public class DoubleSumAggregator extends AbstractAggregator<DoubleAccumulation> {
+public class DoubleSumAggregator implements Aggregator<DoubleAccumulation> {
   private final SumConfig config;
   private final Resource resource;
   private final InstrumentationLibraryInfo instrumentationLibrary;
@@ -33,16 +33,13 @@ public class DoubleSumAggregator extends AbstractAggregator<DoubleAccumulation> 
    * @param config Configuration for the sum aggregation.
    * @param resource Resource to assocaiate metrics.
    * @param instrumentationLibrary InstrumentationLibrary to associate metrics.
-   * @param startEpochNanos The start-of-application time.
    * @param sampler When/how to pull Exemplars.
    */
   public DoubleSumAggregator(
       SumConfig config,
       Resource resource,
       InstrumentationLibraryInfo instrumentationLibrary,
-      long startEpochNanos,
       ExemplarSampler sampler) {
-    super(startEpochNanos);
     this.config = config;
     this.resource = resource;
     this.instrumentationLibrary = instrumentationLibrary;
@@ -51,11 +48,11 @@ public class DoubleSumAggregator extends AbstractAggregator<DoubleAccumulation> 
 
   @Override
   public SynchronousHandle<DoubleAccumulation> createStreamStorage() {
-    return new MyHandle(sampler);
+    return new MyHandle(sampler, config.getTemporality() == AggregationTemporality.DELTA);
   }
 
   @Override
-  DoubleAccumulation asyncAccumulation(Measurement measurement) {
+  public DoubleAccumulation asyncAccumulation(Measurement measurement) {
     // TODO: Use measurement as exemplar?
     return DoubleAccumulation.create(measurement.asDouble().getValue());
   }
@@ -63,9 +60,11 @@ public class DoubleSumAggregator extends AbstractAggregator<DoubleAccumulation> 
   // Note:  Storage handle has high contention and need atomic increments.
   static class MyHandle extends SynchronousHandle<DoubleAccumulation> {
     private final DoubleAdder count = new DoubleAdder();
+    private final boolean delta;
 
-    MyHandle(ExemplarSampler sampler) {
+    MyHandle(ExemplarSampler sampler, boolean delta) {
       super(sampler);
+      this.delta = delta;
     }
 
     @Override
@@ -80,20 +79,14 @@ public class DoubleSumAggregator extends AbstractAggregator<DoubleAccumulation> 
   }
 
   @Override
-  protected boolean isStatefulCollector() {
-    return config.getMeasurementTemporality() == AggregationTemporality.DELTA
-        && config.getTemporality() == AggregationTemporality.CUMULATIVE;
-  }
-
-  @Override
-  protected DoubleAccumulation merge(DoubleAccumulation current, DoubleAccumulation accumulated) {
+  public DoubleAccumulation merge(DoubleAccumulation current, DoubleAccumulation accumulated) {
     // Drop previous exemplars when aggregating.
     return DoubleAccumulation.create(
         current.getValue() + accumulated.getValue(), current.getExemplars());
   }
 
   @Override
-  protected MetricData buildMetric(
+  public MetricData buildMetric(
       Map<Attributes, DoubleAccumulation> accumulated,
       long startEpochNanos,
       long lastEpochNanos,

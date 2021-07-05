@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.LongAdder;
  * <p>This aggregator supports generating DELTA or CUMULATIVE sums, as well as monotonic or
  * non-monotonic.
  */
-public class LongSumAggregator extends AbstractAggregator<LongAccumulation> {
+public class LongSumAggregator implements Aggregator<LongAccumulation> {
   private final SumConfig config;
   private final Resource resource;
   private final InstrumentationLibraryInfo instrumentationLibrary;
@@ -34,16 +34,13 @@ public class LongSumAggregator extends AbstractAggregator<LongAccumulation> {
    * @param config Configuration for the sum aggregation.
    * @param resource Resource to assocaiate metrics.
    * @param instrumentationLibrary InstrumentationLibrary to associate metrics.
-   * @param startEpochNanos The start-of-application time.
    * @param sampler When/how to pull Exemplars.
    */
   public LongSumAggregator(
       SumConfig config,
       Resource resource,
       InstrumentationLibraryInfo instrumentationLibrary,
-      long startEpochNanos,
       ExemplarSampler sampler) {
-    super(startEpochNanos);
     this.config = config;
     this.resource = resource;
     this.instrumentationLibrary = instrumentationLibrary;
@@ -75,27 +72,27 @@ public class LongSumAggregator extends AbstractAggregator<LongAccumulation> {
   }
 
   @Override
-  LongAccumulation asyncAccumulation(Measurement measurement) {
+  public LongAccumulation asyncAccumulation(Measurement measurement) {
     if (measurement instanceof LongMeasurement) {
       return LongAccumulation.create(((LongMeasurement) measurement).getValue());
     }
     throw new IllegalArgumentException("LongSumAggregation can only handle long measurements.");
   }
 
-  @Override
+  // TODO: FIgure this one out.
   protected boolean isStatefulCollector() {
     return config.getMeasurementTemporality() == AggregationTemporality.DELTA
         && config.getTemporality() == AggregationTemporality.CUMULATIVE;
   }
 
   @Override
-  protected LongAccumulation merge(LongAccumulation current, LongAccumulation accumulated) {
+  public LongAccumulation merge(LongAccumulation current, LongAccumulation accumulated) {
     return LongAccumulation.create(
         current.getValue() + accumulated.getValue(), current.getExemplars());
   }
 
   @Override
-  protected MetricData buildMetric(
+  public MetricData buildMetric(
       Map<Attributes, LongAccumulation> accumulated,
       long startEpochNanos,
       long lastEpochNanos,

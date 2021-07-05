@@ -28,12 +28,11 @@ class LongSumAggregatorTest {
               .setDescription("description")
               .setUnit("unit")
               .setMonotonic(true)
-              .setTemporality(AggregationTemporality.CUMULATIVE)
+              .setTemporality(AggregationTemporality.DELTA)
               .setMeasurementTemporality(AggregationTemporality.DELTA)
               .build(),
           Resource.getDefault(),
           InstrumentationLibraryInfo.empty(),
-          /* startEpochNanos = */ 0,
           ExemplarSampler.NEVER);
 
   @Test
@@ -100,7 +99,6 @@ class LongSumAggregatorTest {
                     .build(),
                 Resource.getDefault(),
                 InstrumentationLibraryInfo.empty(),
-                /* startEpochNanos = */ 0,
                 ExemplarSampler.NEVER);
         LongAccumulation merged = aggregator.merge(agg(1L), agg(2L));
         assertThat(merged)
@@ -126,13 +124,13 @@ class LongSumAggregatorTest {
             100);
     assertThat(metricData)
         .hasLongSum()
-        .isCumulative()
+        .isDelta()
         .isMonotonic()
         .points()
         .satisfiesExactly(
             point ->
                 assertThat(point)
-                    .hasStartEpochNanos(0)
+                    .hasStartEpochNanos(10)
                     .hasEpochNanos(100)
                     .hasAttributes(Attributes.empty())
                     .hasValue(10));

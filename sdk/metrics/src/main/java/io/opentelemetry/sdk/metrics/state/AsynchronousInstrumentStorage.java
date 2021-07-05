@@ -11,72 +11,59 @@ import io.opentelemetry.api.metrics.ObservableLongMeasurement;
 import io.opentelemetry.api.metrics.ObservableMeasurement;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.sdk.metrics.aggregator.Aggregator;
-import io.opentelemetry.sdk.metrics.data.MetricData;
 import io.opentelemetry.sdk.metrics.instrument.DoubleMeasurement;
 import io.opentelemetry.sdk.metrics.instrument.LongMeasurement;
 import io.opentelemetry.sdk.metrics.view.AttributesProcessor;
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
-public final class AsynchronousInstrumentStorage implements InstrumentStorage {
+/** This class is responsible for pulling asynchronous instrument readings on demand. */
+public final class AsynchronousInstrumentStorage<T> implements AccumulationProvider<T> {
   private final ReentrantLock collectLock = new ReentrantLock();
-  private final BiConsumer<Aggregator<?>, AttributesProcessor> metricUpdater;
-  private final Aggregator<?> aggregator;
+  private final Consumer<? extends ObservableMeasurement> callback;
+  private final Aggregator<T> aggregator;
   private final AttributesProcessor attributesProcessor;
 
-  static <T> AsynchronousInstrumentStorage create(
+  AsynchronousInstrumentStorage(
       Consumer<? extends ObservableMeasurement> callback,
       Aggregator<T> aggregator,
       AttributesProcessor attributesProcessor) {
-    return new AsynchronousInstrumentStorage(
-        wrapCallback(callback), aggregator, attributesProcessor);
-  }
-
-  /** Type gymnastics to handle both long/double observable measurements. */
-  @SuppressWarnings("unchecked")
-  private static <T extends ObservableMeasurement>
-      BiConsumer<Aggregator<?>, AttributesProcessor> wrapCallback(Consumer<T> callback) {
-    return (storage, processor) ->
-        callback.accept((T) new MyObservableMeasurement(storage, processor));
-  }
-
-  private AsynchronousInstrumentStorage(
-      BiConsumer<Aggregator<?>, AttributesProcessor> metricUpdater,
-      Aggregator<?> aggregator,
-      AttributesProcessor attributesProcessor) {
-    this.metricUpdater = metricUpdater;
+    this.callback = callback;
     this.aggregator = aggregator;
     this.attributesProcessor = attributesProcessor;
   }
 
   @Override
-  public List<MetricData> collectAndReset(long epochNanos) {
+  @SuppressWarnings(
+      "unchecked") // We implement both types of observbale measurement, so this is wonky but safe.
+  public Map<Attributes, T> accumulateThenReset() {
     collectLock.lock();
     try {
-      metricUpdater.accept(aggregator, attributesProcessor);
-      return aggregator.completeCollectionCycle(epochNanos);
+      Map<Attributes, T> result = new HashMap<>();
+      ((Consumer<ObservableMeasurement>) callback).accept(new MyObservableMeasurement(result::put));
+      return result;
     } finally {
       collectLock.unlock();
     }
   }
 
   /** Converts from observable callbacks to measurements. */
-  static class MyObservableMeasurement
-      implements ObservableLongMeasurement, ObservableDoubleMeasurement {
-    private final Aggregator<?> storage;
-    private final AttributesProcessor attributesProcessor;
+  class MyObservableMeasurement implements ObservableLongMeasurement, ObservableDoubleMeasurement {
+    private final BiConsumer<Attributes, T> handler;
 
-    MyObservableMeasurement(Aggregator<?> storage, AttributesProcessor attributesProcessor) {
-      this.storage = storage;
-      this.attributesProcessor = attributesProcessor;
+    MyObservableMeasurement(BiConsumer<Attributes, T> handler) {
+      this.handler = handler;
     }
 
     @Override
     public void observe(double value, Attributes attributes) {
       final Attributes realAttributes = attributesProcessor.process(attributes, Context.current());
-      storage.batchRecord(DoubleMeasurement.createNoContext(value, realAttributes));
+      T accumulation =
+          aggregator.asyncAccumulation(DoubleMeasurement.createNoContext(value, realAttributes));
+      handler.accept(realAttributes, accumulation);
     }
 
     @Override
@@ -87,7 +74,9 @@ public final class AsynchronousInstrumentStorage implements InstrumentStorage {
     @Override
     public void observe(long value, Attributes attributes) {
       final Attributes realAttributes = attributesProcessor.process(attributes, Context.current());
-      storage.batchRecord(LongMeasurement.createNoContext(value, realAttributes));
+      T accumulation =
+          aggregator.asyncAccumulation(LongMeasurement.createNoContext(value, realAttributes));
+      handler.accept(realAttributes, accumulation);
     }
 
     @Override

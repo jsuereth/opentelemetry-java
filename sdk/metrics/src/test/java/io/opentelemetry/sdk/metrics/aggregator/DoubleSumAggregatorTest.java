@@ -28,12 +28,11 @@ class DoubleSumAggregatorTest {
               .setDescription("description")
               .setUnit("unit")
               .setMonotonic(true)
-              .setTemporality(AggregationTemporality.CUMULATIVE)
+              .setTemporality(AggregationTemporality.DELTA)
               .setMeasurementTemporality(AggregationTemporality.DELTA)
               .build(),
           Resource.getDefault(),
           InstrumentationLibraryInfo.empty(),
-          /* startEpochNanos= */ 0L,
           ExemplarSampler.NEVER);
 
   @Test
@@ -98,7 +97,6 @@ class DoubleSumAggregatorTest {
                     .build(),
                 Resource.getDefault(),
                 InstrumentationLibraryInfo.empty(),
-                /* startEpochNanos= */ 0,
                 ExemplarSampler.NEVER);
         DoubleAccumulation merged = aggregator.merge(agg(1), agg(2));
         assertThat(merged.getValue())
@@ -124,13 +122,13 @@ class DoubleSumAggregatorTest {
             100);
     assertThat(metricData)
         .hasDoubleSum()
-        .isCumulative()
+        .isDelta()
         .isMonotonic()
         .points()
         .satisfiesExactly(
             point ->
                 assertThat(point)
-                    .hasStartEpochNanos(0)
+                    .hasStartEpochNanos(10)
                     .hasEpochNanos(100)
                     .hasAttributes(Attributes.empty())
                     .hasValue(10));

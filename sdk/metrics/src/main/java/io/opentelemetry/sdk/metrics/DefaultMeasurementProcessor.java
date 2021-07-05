@@ -108,7 +108,6 @@ public abstract class DefaultMeasurementProcessor implements MeasurementProcesso
         config,
         meterProviderSharedState.getResource(),
         meterSharedState.getInstrumentationLibraryInfo(),
-        meterProviderSharedState.getStartEpochNanos(),
         getDefaultExemplarSampler());
   }
 
@@ -124,14 +123,12 @@ public abstract class DefaultMeasurementProcessor implements MeasurementProcesso
             config,
             meterProviderSharedState.getResource(),
             meterSharedState.getInstrumentationLibraryInfo(),
-            meterProviderSharedState.getStartEpochNanos(),
             getDefaultExemplarSampler());
       case DOUBLE:
         return new DoubleSumAggregator(
             config,
             meterProviderSharedState.getResource(),
             meterSharedState.getInstrumentationLibraryInfo(),
-            meterProviderSharedState.getStartEpochNanos(),
             getDefaultExemplarSampler());
     }
     throw new IllegalArgumentException("Unsupported sum: " + instrument.getValueType());
@@ -151,7 +148,6 @@ public abstract class DefaultMeasurementProcessor implements MeasurementProcesso
         config,
         meterProviderSharedState.getResource(),
         meterSharedState.getInstrumentationLibraryInfo(),
-        meterProviderSharedState.getStartEpochNanos(),
         getDefaultExemplarSampler());
   }
 

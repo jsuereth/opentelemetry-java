@@ -6,6 +6,7 @@
 package io.opentelemetry.sdk.metrics.state;
 
 import static io.opentelemetry.api.common.AttributeKey.stringKey;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.metrics.ObservableDoubleMeasurement;
@@ -18,38 +19,37 @@ import org.mockito.Mockito;
 
 public class AsynchronousInstrumentStorageTest {
 
+  private static final Attributes ATTR_KV = Attributes.of(stringKey("k"), "v");
+
   @Test
   @SuppressWarnings("unchecked")
   public void asynchronousStorage_usesAttributesProcessor() {
     final Aggregator<Object> mockAggregator = Mockito.mock(Aggregator.class);
-    AsynchronousInstrumentStorage storage =
-        AsynchronousInstrumentStorage.create(
-            (ObservableDoubleMeasurement measure) ->
-                measure.observe(1.0, Attributes.of(stringKey("k"), "v")),
+    AsynchronousInstrumentStorage<Object> storage =
+        new AsynchronousInstrumentStorage<>(
+            (ObservableDoubleMeasurement measure) -> measure.observe(1.0, ATTR_KV),
             mockAggregator,
             (attributes, context) -> Attributes.empty());
-    storage.collectAndReset(0);
+    assertThat(storage.accumulateThenReset()).containsKey(Attributes.empty());
 
     Mockito.verify(mockAggregator)
-        .batchRecord(DoubleMeasurement.create(1.0, Attributes.empty(), Context.root()));
+        .asyncAccumulation(DoubleMeasurement.create(1.0, Attributes.empty(), Context.root()));
   }
 
   @Test
   @SuppressWarnings("unchecked")
   public void asynchronousStorage_sendsMeasurementsToAggregatorAndCompletes() {
     final Aggregator<Object> mockAggregator = Mockito.mock(Aggregator.class);
-    AsynchronousInstrumentStorage storage =
-        AsynchronousInstrumentStorage.create(
-            (ObservableDoubleMeasurement measure) ->
-                measure.observe(1.0, Attributes.of(stringKey("k"), "v")),
+    AsynchronousInstrumentStorage<Object> storage =
+        new AsynchronousInstrumentStorage<>(
+            (ObservableDoubleMeasurement measure) -> measure.observe(1.0, ATTR_KV),
             mockAggregator,
             AttributesProcessor.NOOP);
-    storage.collectAndReset(0);
+    assertThat(storage.accumulateThenReset()).containsKey(ATTR_KV);
 
     // Verify aggregator received mesurement and completion timestmap.
     Mockito.verify(mockAggregator)
-        .batchRecord(
+        .asyncAccumulation(
             DoubleMeasurement.create(1.0, Attributes.of(stringKey("k"), "v"), Context.root()));
-    Mockito.verify(mockAggregator).completeCollectionCycle(0);
   }
 }

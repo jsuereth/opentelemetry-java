@@ -25,7 +25,7 @@ import java.util.concurrent.locks.ReentrantLock;
  *
  * <p>This aggregator supports {@code DoubleMeasurement} and {@code LongMeasurement} inputs.
  */
-public class DoubleHistogramAggregator extends AbstractAggregator<HistogramAccumulation> {
+public class DoubleHistogramAggregator implements Aggregator<HistogramAccumulation> {
   private final HistogramConfig config;
   private final Resource resource;
   private final InstrumentationLibraryInfo instrumentationLibrary;
@@ -40,16 +40,13 @@ public class DoubleHistogramAggregator extends AbstractAggregator<HistogramAccum
    * @param config Configuration for the histogram aggregation.
    * @param resource Resource to assocaiate metrics.
    * @param instrumentationLibrary InstrumentationLibrary to associate metrics.
-   * @param startEpochNanos The start-of-application time.
    * @param sampler When/how to pull Exemplars.
    */
   public DoubleHistogramAggregator(
       HistogramConfig config,
       Resource resource,
       InstrumentationLibraryInfo instrumentationLibrary,
-      long startEpochNanos,
       ExemplarSampler sampler) {
-    super(startEpochNanos);
     this.config = config;
     this.resource = resource;
     this.instrumentationLibrary = instrumentationLibrary;
@@ -78,13 +75,17 @@ public class DoubleHistogramAggregator extends AbstractAggregator<HistogramAccum
 
   @Override
   public SynchronousHandle<HistogramAccumulation> createStreamStorage() {
-    return new MyHandle(config.getBoundaries(), sampler);
+    return new MyHandle(
+        config.getBoundaries(), config.getTemporality() == AggregationTemporality.DELTA, sampler);
   }
 
   // Note:  Storage handle has high contention and need atomic increments.
   static class MyHandle extends SynchronousHandle<HistogramAccumulation> {
     // read-only
     private final double[] boundaries;
+
+    // read-only
+    private final boolean delta;
 
     @GuardedBy("lock")
     private double sum;
@@ -94,11 +95,12 @@ public class DoubleHistogramAggregator extends AbstractAggregator<HistogramAccum
 
     private final ReentrantLock lock = new ReentrantLock();
 
-    MyHandle(double[] boundaries, ExemplarSampler sampler) {
+    MyHandle(double[] boundaries, boolean delta, ExemplarSampler sampler) {
       super(sampler);
       this.boundaries = boundaries;
       this.counts = new long[this.boundaries.length + 1];
       this.sum = 0;
+      this.delta = delta;
     }
 
     @Override
@@ -130,13 +132,13 @@ public class DoubleHistogramAggregator extends AbstractAggregator<HistogramAccum
     }
   }
 
-  @Override
+  // TODO: Figure this out...
   protected boolean isStatefulCollector() {
     return config.getTemporality() == AggregationTemporality.CUMULATIVE;
   }
 
   @Override
-  HistogramAccumulation asyncAccumulation(Measurement measurement) {
+  public HistogramAccumulation asyncAccumulation(Measurement measurement) {
     double value = valueOf(measurement);
     int bucketIndex = findBucketIndex(config.getBoundaries(), value);
     long[] counts = new long[config.getBoundaries().length + 1];
@@ -160,7 +162,7 @@ public class DoubleHistogramAggregator extends AbstractAggregator<HistogramAccum
   }
 
   @Override
-  protected MetricData buildMetric(
+  public MetricData buildMetric(
       Map<Attributes, HistogramAccumulation> accumulated,
       long startEpochNanos,
       long lastEpochNanos,

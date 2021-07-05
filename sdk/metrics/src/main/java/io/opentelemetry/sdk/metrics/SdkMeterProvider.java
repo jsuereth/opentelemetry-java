@@ -13,12 +13,15 @@ import io.opentelemetry.sdk.common.Clock;
 import io.opentelemetry.sdk.internal.ComponentRegistry;
 import io.opentelemetry.sdk.metrics.data.MetricData;
 import io.opentelemetry.sdk.metrics.export.MetricProducer;
+import io.opentelemetry.sdk.metrics.state.CollectionHandle;
 import io.opentelemetry.sdk.metrics.state.MeterProviderSharedState;
 import io.opentelemetry.sdk.resources.Resource;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.logging.Logger;
 
 /**
@@ -33,12 +36,15 @@ public class SdkMeterProvider implements MeterProvider, MetricProducer {
   static final String DEFAULT_METER_NAME = "unknown";
   private final ComponentRegistry<SdkMeter> registry;
   private final MeterProviderSharedState sharedState;
+  private final Set<CollectionHandle> handlers = new HashSet<>();
 
   SdkMeterProvider(Clock clock, Resource resource, MeasurementProcessor processor) {
     this.sharedState = MeterProviderSharedState.create(clock, resource, processor);
     this.registry =
         new ComponentRegistry<>(
             instrumentationLibraryInfo -> new SdkMeter(sharedState, instrumentationLibraryInfo));
+
+    handlers.add(new CollectionHandle(1));
   }
 
   @Override
@@ -55,7 +61,10 @@ public class SdkMeterProvider implements MeterProvider, MetricProducer {
     Collection<SdkMeter> meters = registry.getComponents();
     List<MetricData> result = new ArrayList<>(meters.size());
     for (SdkMeter meter : meters) {
-      result.addAll(meter.collectAll(sharedState.getClock().now()));
+      result.addAll(
+          meter.collectAll(
+              // TODO: Use a real collection handle in this call..
+              handlers.iterator().next(), handlers, sharedState.getClock().now()));
     }
     return Collections.unmodifiableCollection(result);
   }

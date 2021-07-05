@@ -20,8 +20,8 @@ public interface AggregatorFactory<A> {
    * @return A factory which will instantiate aggregators that keep the last value.
    */
   public static AggregatorFactory<DoubleAccumulation> lastValue(final LastValueConfig config) {
-    return (resource, instrumentationLibrary, startEpochNanos, sampler) ->
-        new LastValueAggregator(config, resource, instrumentationLibrary, startEpochNanos, sampler);
+    return (resource, instrumentationLibrary, sampler) ->
+        new LastValueAggregator(config, resource, instrumentationLibrary, sampler);
   }
 
   /**
@@ -31,8 +31,8 @@ public interface AggregatorFactory<A> {
    * @return A factory which will instantiate aggregators that keep an integer sum.
    */
   public static AggregatorFactory<LongAccumulation> longSum(final SumConfig config) {
-    return (resource, instrumentationLibrary, startEpochNanos, sampler) ->
-        new LongSumAggregator(config, resource, instrumentationLibrary, startEpochNanos, sampler);
+    return (resource, instrumentationLibrary, sampler) ->
+        new LongSumAggregator(config, resource, instrumentationLibrary, sampler);
   }
 
   /**
@@ -42,8 +42,8 @@ public interface AggregatorFactory<A> {
    * @return A factory which will instantiate aggregators that keep a floating point sum.
    */
   public static AggregatorFactory<DoubleAccumulation> doubleSum(final SumConfig config) {
-    return (resource, instrumentationLibrary, startEpochNanos, sampler) ->
-        new DoubleSumAggregator(config, resource, instrumentationLibrary, startEpochNanos, sampler);
+    return (resource, instrumentationLibrary, sampler) ->
+        new DoubleSumAggregator(config, resource, instrumentationLibrary, sampler);
   }
 
   /**
@@ -54,9 +54,8 @@ public interface AggregatorFactory<A> {
    */
   public static AggregatorFactory<HistogramAccumulation> doubleHistogram(
       final HistogramConfig config) {
-    return (resource, instrumentationLibrary, startEpochNanos, sampler) ->
-        new DoubleHistogramAggregator(
-            config, resource, instrumentationLibrary, startEpochNanos, sampler);
+    return (resource, instrumentationLibrary, sampler) ->
+        new DoubleHistogramAggregator(config, resource, instrumentationLibrary, sampler);
   }
 
   /**
@@ -66,13 +65,11 @@ public interface AggregatorFactory<A> {
    *     measurements.
    * @param insturmentationLibrary the InstrumentationLibraryInfo associated with the {@code
    *     Instrument} that will record measurements.
-   * @param startEpochNanos The start time of this application.
    * @param sampler How to sample {code Exemplar}s off measurements.
    * @return a new {@link Aggregator}.
    */
   Aggregator<A> create(
       Resource resource,
       InstrumentationLibraryInfo insturmentationLibrary,
-      long startEpochNanos,
       ExemplarSampler sampler);
 }

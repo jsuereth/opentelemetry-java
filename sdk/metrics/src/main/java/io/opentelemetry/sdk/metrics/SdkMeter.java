@@ -17,6 +17,7 @@ import io.opentelemetry.api.metrics.ObservableLongMeasurement;
 import io.opentelemetry.api.metrics.UpDownCounterBuilder;
 import io.opentelemetry.sdk.common.InstrumentationLibraryInfo;
 import io.opentelemetry.sdk.metrics.data.MetricData;
+import io.opentelemetry.sdk.metrics.state.CollectionHandle;
 import io.opentelemetry.sdk.metrics.state.InstrumentStorage;
 import io.opentelemetry.sdk.metrics.state.InstrumentStorageRegistry;
 import io.opentelemetry.sdk.metrics.state.MeterProviderSharedState;
@@ -24,6 +25,7 @@ import io.opentelemetry.sdk.metrics.state.MeterSharedState;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 
 /** {@link SdkMeter} is SDK implementation of {@link Meter}. */
 public class SdkMeter implements Meter {
@@ -59,12 +61,15 @@ public class SdkMeter implements Meter {
   }
 
   /** Collects all the metric recordings that changed since the previous call. */
-  Collection<MetricData> collectAll(long epochNanos) {
+  Collection<MetricData> collectAll(
+      CollectionHandle handle, Set<CollectionHandle> collectors, long epochNanos) {
     InstrumentStorageRegistry instrumentRegistry = meterSharedState.getInstrumentStorageRegistry();
     Collection<InstrumentStorage> instruments = instrumentRegistry.getInstruments();
     List<MetricData> result = new ArrayList<>(instruments.size());
     for (InstrumentStorage instrument : instruments) {
-      result.addAll(instrument.collectAndReset(epochNanos));
+      result.addAll(
+          instrument.collectAndReset(
+              handle, collectors, meterProviderSharedState.getStartEpochNanos(), epochNanos));
     }
     return result;
   }

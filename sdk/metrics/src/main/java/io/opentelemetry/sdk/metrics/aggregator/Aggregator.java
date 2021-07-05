@@ -8,31 +8,17 @@ package io.opentelemetry.sdk.metrics.aggregator;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.sdk.metrics.data.MetricData;
 import io.opentelemetry.sdk.metrics.instrument.Measurement;
-import java.util.List;
+import java.util.Map;
+import javax.annotation.concurrent.ThreadSafe;
 
 /**
  * A processor that can generate aggregators for metrics streams while also combining those streams
  * into {@link MetricData}.
  *
- * <p>Aggregators have the following lifecycle:
- *
- * <ul>
- *   <li>During usage of synchronous instruments, {@link #createStreamStorage} is called for unique
- *       {@link Attributes}. This method does not need to be threadsafe, but the returned handle
- *       must support high concurrency aggregation.
- *   <li>During a colletion phase, the aggregator will receive the following calls:
- *       <ol>
- *         <li>{@link #batchRecord} (for asynchronous instruments) or {@link
- *             #batchStreamAccumulation} for synchronous instruments. These can be called multiple
- *             times.
- *         <li>{@link #completeCollectionCycle} - This is expected to return {@link MetricData} for
- *             all metrics created by this aggregator. Additionally, the aggregator is expected to
- *             reset its state for the next round of collection.
- *       </ol>
- *       The collection phase is considered "single threaded", and does not require (additonal)
- *       locking.
- * </ul>
+ * <p>Aggregators are expected to be stateless, preserving all state in the assocaited type {@code
+ * T}. This means all methods should only make use of passed in data to calculate outputs.
  */
+@ThreadSafe
 public interface Aggregator<T> {
   /**
    * Construct a handle for storing highly-concurrent measurement input.
@@ -42,32 +28,28 @@ public interface Aggregator<T> {
    */
   public SynchronousHandle<T> createStreamStorage();
 
-  /**
-   * Record an asynchronous measurement for this collection cycle.
-   *
-   * <p>Asynchronous measurements are sent within "a single thread" (or effectively single thread)
-   * for this aggregator.
+  /** 
+   * Merge the currently recording metric point with the previous accumulation. 
+   * 
+   * <p> This is called when two paths can lead to a measurement and their values should be joined.
    */
-  public void batchRecord(Measurement measurement);
+  public T merge(T current, T accumulated);
+
+  /** 
+   * Return the accumulation for an asynchronously recorded measurement. 
+   * 
+   * This is called when an asycnhronous measurement is taken, and is expected to return a CUMULATIVE accumulation (to be later manipualted if calcualting DELTA).
+   */
+  public T asyncAccumulation(Measurement measurement);
 
   /**
-   * Batches multiple entries together that are part of the same metric. It may remove attributes
-   * from the {@link Attributes} and merge aggregations together.
+   * Construct a metric stream for this aggregator.
    *
-   * @param attributes the {@link Attributes} associated with this {@code MetricStreamProcessor}.
-   * @param accumulation the accumulation of measurments produced by the StorageHandle.
+   * @param accumulated The underlying stream points, by {@link Attributes}.
+   * @param startEpochNanos The start time for the metrics SDK.
+   * @param lastEpochNanos The time of the last collection period (i.e. delta start time).
+   * @param epochNanos The current collection period time (i.e. end time).
    */
-  public void batchStreamAccumulation(Attributes attributes, T accumulation);
-
-  /**
-   * Ends the current collection cycle and returns the list of metrics batched in this Batcher.
-   *
-   * <p>There may be more than one MetricData in case a multi aggregator is configured.
-   *
-   * <p>Based on the configured options this method may reset the internal state to produce deltas,
-   * or keep the internal state to produce cumulative metrics.
-   *
-   * @return the list of metrics batched in this prcoessor.
-   */
-  public List<MetricData> completeCollectionCycle(long epochNanos);
+  public MetricData buildMetric(
+      Map<Attributes, T> accumulated, long startEpochNanos, long lastEpochNanos, long epochNanos);
 }

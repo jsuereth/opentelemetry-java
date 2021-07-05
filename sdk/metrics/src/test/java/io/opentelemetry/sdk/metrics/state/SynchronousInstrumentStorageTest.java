@@ -5,6 +5,8 @@
 
 package io.opentelemetry.sdk.metrics.state;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.context.Context;
@@ -20,14 +22,11 @@ import org.mockito.Mockito;
 public class SynchronousInstrumentStorageTest {
   @Test
   @SuppressWarnings("unchecked")
-  public void synchronousStorage_sendsCompleteCollectionCycleToAggregator() {
+  public void synchronousStorage_doesNothingOnEmpty() {
     final Aggregator<Object> mockAggregator = Mockito.mock(Aggregator.class);
     SynchronousInstrumentStorage<Object> storage =
-        SynchronousInstrumentStorage.create(mockAggregator, AttributesProcessor.NOOP);
-    storage.collectAndReset(0);
-
-    // Verify aggregator received mesurement and completion timestmap.
-    Mockito.verify(mockAggregator).completeCollectionCycle(0);
+        new SynchronousInstrumentStorage<>(mockAggregator, AttributesProcessor.NOOP);
+    assertThat(storage.accumulateThenReset()).isEmpty();
   }
 
   @Test
@@ -37,7 +36,7 @@ public class SynchronousInstrumentStorageTest {
     final Attributes KV = Attributes.of(AttributeKey.stringKey("k"), "v");
     Mockito.when(mockAggregator.createStreamStorage()).thenAnswer(invocation -> new NoopHandle());
     SynchronousInstrumentStorage<Object> storage =
-        SynchronousInstrumentStorage.create(mockAggregator, AttributesProcessor.NOOP);
+        new SynchronousInstrumentStorage<>(mockAggregator, AttributesProcessor.NOOP);
     // Now we make sure we create N storage handles, and ensure the attributes
     // show up when we aggregate via `batchStreamAccumulate`.
     storage
@@ -46,10 +45,7 @@ public class SynchronousInstrumentStorageTest {
     storage.bind(KV).record(LongMeasurement.create(1, KV, Context.root()));
     // Binding a handle with no value will NOT cause accumulation.
     storage.bind(Attributes.of(AttributeKey.stringKey("k"), "unused"));
-    storage.collectAndReset(0);
-    Mockito.verify(mockAggregator).batchStreamAccumulation(Attributes.empty(), "result");
-    Mockito.verify(mockAggregator).batchStreamAccumulation(KV, "result");
-    Mockito.verify(mockAggregator).completeCollectionCycle(0);
+    assertThat(storage.accumulateThenReset()).containsKeys(Attributes.empty(), KV);
   }
 
   @Test
@@ -60,7 +56,7 @@ public class SynchronousInstrumentStorageTest {
     final Attributes KV2 = Attributes.of(AttributeKey.stringKey("k"), "v2");
     Mockito.when(mockAggregator.createStreamStorage()).thenAnswer(invocation -> new NoopHandle());
     SynchronousInstrumentStorage<Object> storage =
-        SynchronousInstrumentStorage.create(
+        new SynchronousInstrumentStorage<>(
             mockAggregator,
             (attributes, context) -> {
               if (attributes.equals(KV)) {
@@ -76,10 +72,7 @@ public class SynchronousInstrumentStorageTest {
     storage.bind(KV).record(LongMeasurement.create(1, KV, Context.root()));
     // Binding a handle with no value will NOT cause accumulation.
     storage.bind(Attributes.of(AttributeKey.stringKey("k"), "unused"));
-    storage.collectAndReset(0);
-    Mockito.verify(mockAggregator).batchStreamAccumulation(Attributes.empty(), "result");
-    Mockito.verify(mockAggregator).batchStreamAccumulation(KV2, "result");
-    Mockito.verify(mockAggregator).completeCollectionCycle(0);
+    assertThat(storage.accumulateThenReset()).containsKeys(Attributes.empty(), KV2);
   }
 
   /** Stubbed version of synchronous handle for testing. */
