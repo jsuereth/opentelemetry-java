@@ -5,7 +5,6 @@
 
 package io.opentelemetry.exporter.otlp.internal;
 
-import io.opentelemetry.api.trace.SpanContext;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.proto.collector.trace.v1.internal.ExportTraceServiceRequest;
@@ -21,9 +20,9 @@ import io.opentelemetry.sdk.trace.data.SpanData;
 import io.opentelemetry.sdk.trace.data.StatusData;
 import java.io.IOException;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * {@link Marshaler} to convert SDK {@link SpanData} to OTLP ExportTraceServiceRequest.
@@ -31,12 +30,7 @@ import java.util.Map;
  * <p>This class is internal and is hence not for public use. Its APIs are unstable and can change
  * at any time.
  */
-public final class TraceRequestMarshaler extends MarshalerWithSize implements Marshaler {
-
-  // In practice, there is often only one thread that calls this code in the BatchSpanProcessor so
-  // reusing buffers for the thread is almost free. Even with multiple threads, it should still be
-  // worth it and is common practice in serialization libraries such as Jackson.
-  private static final ThreadLocal<ThreadLocalCache> THREAD_LOCAL_CACHE = new ThreadLocal<>();
+public final class TraceRequestMarshaler extends MarshalerWithSize {
 
   private final ResourceSpansMarshaler[] resourceSpansMarshalers;
 
@@ -162,14 +156,14 @@ public final class TraceRequestMarshaler extends MarshalerWithSize implements Ma
   }
 
   private static final class SpanMarshaler extends MarshalerWithSize {
-    private final byte[] traceId;
-    private final byte[] spanId;
-    private final byte[] parentSpanId;
+    private final String traceId;
+    private final String spanId;
+    @Nullable private final String parentSpanId;
     private final byte[] nameUtf8;
     private final int spanKind;
     private final long startEpochNanos;
     private final long endEpochNanos;
-    private final AttributeMarshaler[] attributeMarshalers;
+    private final KeyValueMarshaler[] attributeMarshalers;
     private final int droppedAttributesCount;
     private final SpanEventMarshaler[] spanEventMarshalers;
     private final int droppedEventsCount;
@@ -178,35 +172,20 @@ public final class TraceRequestMarshaler extends MarshalerWithSize implements Ma
     private final SpanStatusMarshaler spanStatusMarshaler;
 
     // Because SpanMarshaler is always part of a repeated field, it cannot return "null".
-    static SpanMarshaler create(SpanData spanData, ThreadLocalCache threadLocalCache) {
-      AttributeMarshaler[] attributeMarshalers =
-          AttributeMarshaler.createRepeated(spanData.getAttributes());
+    static SpanMarshaler create(SpanData spanData) {
+      KeyValueMarshaler[] attributeMarshalers =
+          KeyValueMarshaler.createRepeated(spanData.getAttributes());
       SpanEventMarshaler[] spanEventMarshalers = SpanEventMarshaler.create(spanData.getEvents());
-      SpanLinkMarshaler[] spanLinkMarshalers =
-          SpanLinkMarshaler.create(spanData.getLinks(), threadLocalCache);
-      Map<String, byte[]> idBytesCache = threadLocalCache.idBytesCache;
+      SpanLinkMarshaler[] spanLinkMarshalers = SpanLinkMarshaler.create(spanData.getLinks());
 
-      byte[] traceId =
-          idBytesCache.computeIfAbsent(
-              spanData.getSpanContext().getTraceId(),
-              unused -> spanData.getSpanContext().getTraceIdBytes());
-      byte[] spanId =
-          idBytesCache.computeIfAbsent(
-              spanData.getSpanContext().getSpanId(),
-              unused -> spanData.getSpanContext().getSpanIdBytes());
-
-      byte[] parentSpanId = MarshalerUtil.EMPTY_BYTES;
-      SpanContext parentSpanContext = spanData.getParentSpanContext();
-      if (parentSpanContext.isValid()) {
-        parentSpanId =
-            idBytesCache.computeIfAbsent(
-                spanData.getParentSpanContext().getSpanId(),
-                unused -> spanData.getParentSpanContext().getSpanIdBytes());
-      }
+      String parentSpanId =
+          spanData.getParentSpanContext().isValid()
+              ? spanData.getParentSpanContext().getSpanId()
+              : null;
 
       return new SpanMarshaler(
-          traceId,
-          spanId,
+          spanData.getSpanContext().getTraceId(),
+          spanData.getSpanContext().getSpanId(),
           parentSpanId,
           MarshalerUtil.toBytes(spanData.getName()),
           toProtoSpanKind(spanData.getKind()),
@@ -222,14 +201,14 @@ public final class TraceRequestMarshaler extends MarshalerWithSize implements Ma
     }
 
     private SpanMarshaler(
-        byte[] traceId,
-        byte[] spanId,
-        byte[] parentSpanId,
+        String traceId,
+        String spanId,
+        @Nullable String parentSpanId,
         byte[] nameUtf8,
         int spanKind,
         long startEpochNanos,
         long endEpochNanos,
-        AttributeMarshaler[] attributeMarshalers,
+        KeyValueMarshaler[] attributeMarshalers,
         int droppedAttributesCount,
         SpanEventMarshaler[] spanEventMarshalers,
         int droppedEventsCount,
@@ -270,10 +249,10 @@ public final class TraceRequestMarshaler extends MarshalerWithSize implements Ma
 
     @Override
     public void writeTo(Serializer output) throws IOException {
-      output.serializeBytes(Span.TRACE_ID, traceId);
-      output.serializeBytes(Span.SPAN_ID, spanId);
+      output.serializeTraceId(Span.TRACE_ID, traceId);
+      output.serializeSpanId(Span.SPAN_ID, spanId);
       // TODO: Set TraceState;
-      output.serializeBytes(Span.PARENT_SPAN_ID, parentSpanId);
+      output.serializeSpanId(Span.PARENT_SPAN_ID, parentSpanId);
       output.serializeString(Span.NAME, nameUtf8);
 
       output.serializeEnum(Span.KIND, spanKind);
@@ -294,14 +273,14 @@ public final class TraceRequestMarshaler extends MarshalerWithSize implements Ma
     }
 
     private static int calculateSize(
-        byte[] traceId,
-        byte[] spanId,
-        byte[] parentSpanId,
+        String traceId,
+        String spanId,
+        @Nullable String parentSpanId,
         byte[] nameUtf8,
         int spanKind,
         long startEpochNanos,
         long endEpochNanos,
-        AttributeMarshaler[] attributeMarshalers,
+        KeyValueMarshaler[] attributeMarshalers,
         int droppedAttributesCount,
         SpanEventMarshaler[] spanEventMarshalers,
         int droppedEventsCount,
@@ -309,10 +288,10 @@ public final class TraceRequestMarshaler extends MarshalerWithSize implements Ma
         int droppedLinksCount,
         SpanStatusMarshaler spanStatusMarshaler) {
       int size = 0;
-      size += MarshalerUtil.sizeBytes(Span.TRACE_ID, traceId);
-      size += MarshalerUtil.sizeBytes(Span.SPAN_ID, spanId);
+      size += MarshalerUtil.sizeTraceId(Span.TRACE_ID, traceId);
+      size += MarshalerUtil.sizeSpanId(Span.SPAN_ID, spanId);
       // TODO: Set TraceState;
-      size += MarshalerUtil.sizeBytes(Span.PARENT_SPAN_ID, parentSpanId);
+      size += MarshalerUtil.sizeSpanId(Span.PARENT_SPAN_ID, parentSpanId);
       size += MarshalerUtil.sizeBytes(Span.NAME, nameUtf8);
 
       size += MarshalerUtil.sizeEnum(Span.KIND, spanKind);
@@ -338,7 +317,7 @@ public final class TraceRequestMarshaler extends MarshalerWithSize implements Ma
     private static final SpanEventMarshaler[] EMPTY = new SpanEventMarshaler[0];
     private final long epochNanos;
     private final byte[] name;
-    private final AttributeMarshaler[] attributeMarshalers;
+    private final KeyValueMarshaler[] attributeMarshalers;
     private final int droppedAttributesCount;
 
     static SpanEventMarshaler[] create(List<EventData> events) {
@@ -353,7 +332,7 @@ public final class TraceRequestMarshaler extends MarshalerWithSize implements Ma
             new SpanEventMarshaler(
                 event.getEpochNanos(),
                 MarshalerUtil.toBytes(event.getName()),
-                AttributeMarshaler.createRepeated(event.getAttributes()),
+                KeyValueMarshaler.createRepeated(event.getAttributes()),
                 event.getTotalAttributeCount() - event.getAttributes().size());
       }
 
@@ -363,7 +342,7 @@ public final class TraceRequestMarshaler extends MarshalerWithSize implements Ma
     private SpanEventMarshaler(
         long epochNanos,
         byte[] name,
-        AttributeMarshaler[] attributeMarshalers,
+        KeyValueMarshaler[] attributeMarshalers,
         int droppedAttributesCount) {
       super(calculateSize(epochNanos, name, attributeMarshalers, droppedAttributesCount));
       this.epochNanos = epochNanos;
@@ -375,7 +354,7 @@ public final class TraceRequestMarshaler extends MarshalerWithSize implements Ma
     @Override
     public void writeTo(Serializer output) throws IOException {
       output.serializeFixed64(Span.Event.TIME_UNIX_NANO, epochNanos);
-      output.serializeBytes(Span.Event.NAME, name);
+      output.serializeString(Span.Event.NAME, name);
       output.serializeRepeatedMessage(Span.Event.ATTRIBUTES, attributeMarshalers);
       output.serializeUInt32(Span.Event.DROPPED_ATTRIBUTES_COUNT, droppedAttributesCount);
     }
@@ -383,7 +362,7 @@ public final class TraceRequestMarshaler extends MarshalerWithSize implements Ma
     private static int calculateSize(
         long epochNanos,
         byte[] name,
-        AttributeMarshaler[] attributeMarshalers,
+        KeyValueMarshaler[] attributeMarshalers,
         int droppedAttributesCount) {
       int size = 0;
       size += MarshalerUtil.sizeFixed64(Span.Event.TIME_UNIX_NANO, epochNanos);
@@ -396,29 +375,24 @@ public final class TraceRequestMarshaler extends MarshalerWithSize implements Ma
 
   private static final class SpanLinkMarshaler extends MarshalerWithSize {
     private static final SpanLinkMarshaler[] EMPTY = new SpanLinkMarshaler[0];
-    private final byte[] traceId;
-    private final byte[] spanId;
-    private final AttributeMarshaler[] attributeMarshalers;
+    private final String traceId;
+    private final String spanId;
+    private final KeyValueMarshaler[] attributeMarshalers;
     private final int droppedAttributesCount;
 
-    static SpanLinkMarshaler[] create(List<LinkData> links, ThreadLocalCache threadLocalCache) {
+    static SpanLinkMarshaler[] create(List<LinkData> links) {
       if (links.isEmpty()) {
         return EMPTY;
       }
-      Map<String, byte[]> idBytesCache = threadLocalCache.idBytesCache;
 
       SpanLinkMarshaler[] result = new SpanLinkMarshaler[links.size()];
       int pos = 0;
       for (LinkData link : links) {
         result[pos++] =
             new SpanLinkMarshaler(
-                idBytesCache.computeIfAbsent(
-                    link.getSpanContext().getTraceId(),
-                    unused -> link.getSpanContext().getTraceIdBytes()),
-                idBytesCache.computeIfAbsent(
-                    link.getSpanContext().getSpanId(),
-                    unused -> link.getSpanContext().getSpanIdBytes()),
-                AttributeMarshaler.createRepeated(link.getAttributes()),
+                link.getSpanContext().getTraceId(),
+                link.getSpanContext().getSpanId(),
+                KeyValueMarshaler.createRepeated(link.getAttributes()),
                 link.getTotalAttributeCount() - link.getAttributes().size());
       }
 
@@ -426,9 +400,9 @@ public final class TraceRequestMarshaler extends MarshalerWithSize implements Ma
     }
 
     private SpanLinkMarshaler(
-        byte[] traceId,
-        byte[] spanId,
-        AttributeMarshaler[] attributeMarshalers,
+        String traceId,
+        String spanId,
+        KeyValueMarshaler[] attributeMarshalers,
         int droppedAttributesCount) {
       super(calculateSize(traceId, spanId, attributeMarshalers, droppedAttributesCount));
       this.traceId = traceId;
@@ -439,21 +413,21 @@ public final class TraceRequestMarshaler extends MarshalerWithSize implements Ma
 
     @Override
     public void writeTo(Serializer output) throws IOException {
-      output.serializeBytes(Span.Link.TRACE_ID, traceId);
-      output.serializeBytes(Span.Link.SPAN_ID, spanId);
+      output.serializeTraceId(Span.Link.TRACE_ID, traceId);
+      output.serializeSpanId(Span.Link.SPAN_ID, spanId);
       // TODO: Set TraceState;
       output.serializeRepeatedMessage(Span.Link.ATTRIBUTES, attributeMarshalers);
       output.serializeUInt32(Span.Link.DROPPED_ATTRIBUTES_COUNT, droppedAttributesCount);
     }
 
     private static int calculateSize(
-        byte[] traceId,
-        byte[] spanId,
-        AttributeMarshaler[] attributeMarshalers,
+        String traceId,
+        String spanId,
+        KeyValueMarshaler[] attributeMarshalers,
         int droppedAttributesCount) {
       int size = 0;
-      size += MarshalerUtil.sizeBytes(Span.Link.TRACE_ID, traceId);
-      size += MarshalerUtil.sizeBytes(Span.Link.SPAN_ID, spanId);
+      size += MarshalerUtil.sizeTraceId(Span.Link.TRACE_ID, traceId);
+      size += MarshalerUtil.sizeSpanId(Span.Link.SPAN_ID, spanId);
       // TODO: Set TraceState;
       size += MarshalerUtil.sizeRepeatedMessage(Span.Link.ATTRIBUTES, attributeMarshalers);
       size += MarshalerUtil.sizeUInt32(Span.Link.DROPPED_ATTRIBUTES_COUNT, droppedAttributesCount);
@@ -507,18 +481,13 @@ public final class TraceRequestMarshaler extends MarshalerWithSize implements Ma
 
   private static Map<Resource, Map<InstrumentationLibraryInfo, List<SpanMarshaler>>>
       groupByResourceAndLibrary(Collection<SpanData> spanDataList) {
-    ThreadLocalCache threadLocalCache = getThreadLocalCache();
-    try {
-      return MarshalerUtil.groupByResourceAndLibrary(
-          spanDataList,
-          // TODO(anuraaga): Replace with an internal SdkData type of interface that exposes these
-          // two.
-          SpanData::getResource,
-          SpanData::getInstrumentationLibraryInfo,
-          data -> SpanMarshaler.create(data, threadLocalCache));
-    } finally {
-      threadLocalCache.idBytesCache.clear();
-    }
+    return MarshalerUtil.groupByResourceAndLibrary(
+        spanDataList,
+        // TODO(anuraaga): Replace with an internal SdkData type of interface that exposes these
+        // two.
+        SpanData::getResource,
+        SpanData::getInstrumentationLibraryInfo,
+        data -> SpanMarshaler.create(data));
   }
 
   private static int toProtoSpanKind(SpanKind kind) {
@@ -535,18 +504,5 @@ public final class TraceRequestMarshaler extends MarshalerWithSize implements Ma
         return Span.SpanKind.SPAN_KIND_CONSUMER_VALUE;
     }
     return -1;
-  }
-
-  private static ThreadLocalCache getThreadLocalCache() {
-    ThreadLocalCache result = THREAD_LOCAL_CACHE.get();
-    if (result == null) {
-      result = new ThreadLocalCache();
-      THREAD_LOCAL_CACHE.set(result);
-    }
-    return result;
-  }
-
-  private static final class ThreadLocalCache {
-    final Map<String, byte[]> idBytesCache = new HashMap<>();
   }
 }

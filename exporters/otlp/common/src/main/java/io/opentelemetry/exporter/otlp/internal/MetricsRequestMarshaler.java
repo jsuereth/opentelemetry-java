@@ -5,9 +5,6 @@
 
 package io.opentelemetry.exporter.otlp.internal;
 
-import io.opentelemetry.api.internal.OtelEncodingUtils;
-import io.opentelemetry.api.trace.SpanId;
-import io.opentelemetry.api.trace.TraceId;
 import io.opentelemetry.proto.collector.metrics.v1.internal.ExportMetricsServiceRequest;
 import io.opentelemetry.proto.metrics.v1.internal.AggregationTemporality;
 import io.opentelemetry.proto.metrics.v1.internal.Gauge;
@@ -40,6 +37,7 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * {@link Marshaler} to convert SDK {@link MetricData} to OTLP ExportMetricsServiceRequest.
@@ -47,7 +45,7 @@ import java.util.Map;
  * <p>This class is internal and is hence not for public use. Its APIs are unstable and can change
  * at any time.
  */
-public final class MetricsRequestMarshaler extends MarshalerWithSize implements Marshaler {
+public final class MetricsRequestMarshaler extends MarshalerWithSize {
 
   private final ResourceMetricsMarshaler[] resourceMetricsMarshalers;
 
@@ -348,7 +346,7 @@ public final class MetricsRequestMarshaler extends MarshalerWithSize implements 
     private final List<Long> bucketCounts;
     private final List<Double> explicitBounds;
     private final ExemplarMarshaler[] exemplars;
-    private final AttributeMarshaler[] attributes;
+    private final KeyValueMarshaler[] attributes;
 
     static HistogramDataPointMarshaler[] createRepeated(
         Collection<DoubleHistogramPointData> points) {
@@ -361,8 +359,8 @@ public final class MetricsRequestMarshaler extends MarshalerWithSize implements 
     }
 
     static HistogramDataPointMarshaler create(DoubleHistogramPointData point) {
-      AttributeMarshaler[] attributeMarshalers =
-          AttributeMarshaler.createRepeated(point.getAttributes());
+      KeyValueMarshaler[] attributeMarshalers =
+          KeyValueMarshaler.createRepeated(point.getAttributes());
       ExemplarMarshaler[] exemplarMarshalers =
           ExemplarMarshaler.createRepeated(point.getExemplars());
 
@@ -385,7 +383,7 @@ public final class MetricsRequestMarshaler extends MarshalerWithSize implements 
         List<Long> bucketCounts,
         List<Double> explicitBounds,
         ExemplarMarshaler[] exemplars,
-        AttributeMarshaler[] attributes) {
+        KeyValueMarshaler[] attributes) {
       super(
           calculateSize(
               startTimeUnixNano,
@@ -426,7 +424,7 @@ public final class MetricsRequestMarshaler extends MarshalerWithSize implements 
         List<Long> bucketCounts,
         List<Double> explicitBounds,
         ExemplarMarshaler[] exemplars,
-        AttributeMarshaler[] attributes) {
+        KeyValueMarshaler[] attributes) {
       int size = 0;
       size += MarshalerUtil.sizeFixed64(HistogramDataPoint.START_TIME_UNIX_NANO, startTimeUnixNano);
       size += MarshalerUtil.sizeFixed64(HistogramDataPoint.TIME_UNIX_NANO, timeUnixNano);
@@ -512,7 +510,7 @@ public final class MetricsRequestMarshaler extends MarshalerWithSize implements 
     private final long count;
     private final double sum;
     private final ValueAtQuantileMarshaler[] quantileValues;
-    private final AttributeMarshaler[] attributes;
+    private final KeyValueMarshaler[] attributes;
 
     static SummaryDataPointMarshaler[] createRepeated(Collection<DoubleSummaryPointData> points) {
       SummaryDataPointMarshaler[] marshalers = new SummaryDataPointMarshaler[points.size()];
@@ -526,8 +524,8 @@ public final class MetricsRequestMarshaler extends MarshalerWithSize implements 
     static SummaryDataPointMarshaler create(DoubleSummaryPointData point) {
       ValueAtQuantileMarshaler[] quantileMarshalers =
           ValueAtQuantileMarshaler.createRepeated(point.getPercentileValues());
-      AttributeMarshaler[] attributeMarshalers =
-          AttributeMarshaler.createRepeated(point.getAttributes());
+      KeyValueMarshaler[] attributeMarshalers =
+          KeyValueMarshaler.createRepeated(point.getAttributes());
 
       return new SummaryDataPointMarshaler(
           point.getStartEpochNanos(),
@@ -544,7 +542,7 @@ public final class MetricsRequestMarshaler extends MarshalerWithSize implements 
         long count,
         double sum,
         ValueAtQuantileMarshaler[] quantileValues,
-        AttributeMarshaler[] attributes) {
+        KeyValueMarshaler[] attributes) {
       super(calculateSize(startTimeUnixNano, timeUnixNano, count, sum, quantileValues, attributes));
       this.startTimeUnixNano = startTimeUnixNano;
       this.timeUnixNano = timeUnixNano;
@@ -570,7 +568,7 @@ public final class MetricsRequestMarshaler extends MarshalerWithSize implements 
         long count,
         double sum,
         ValueAtQuantileMarshaler[] quantileValues,
-        AttributeMarshaler[] attributes) {
+        KeyValueMarshaler[] attributes) {
       int size = 0;
       size += MarshalerUtil.sizeFixed64(SummaryDataPoint.START_TIME_UNIX_NANO, startTimeUnixNano);
       size += MarshalerUtil.sizeFixed64(SummaryDataPoint.TIME_UNIX_NANO, timeUnixNano);
@@ -623,12 +621,11 @@ public final class MetricsRequestMarshaler extends MarshalerWithSize implements 
     private final long startTimeUnixNano;
     private final long timeUnixNano;
 
-    // Always fixed64, for a double it's the bits themselves.
-    private final long value;
+    private final PointData value;
     private final ProtoFieldInfo valueField;
 
     private final ExemplarMarshaler[] exemplars;
-    private final AttributeMarshaler[] attributes;
+    private final KeyValueMarshaler[] attributes;
 
     static NumberDataPointMarshaler[] createRepeated(Collection<? extends PointData> points) {
       int numPoints = points.size();
@@ -643,24 +640,21 @@ public final class MetricsRequestMarshaler extends MarshalerWithSize implements 
     static NumberDataPointMarshaler create(PointData point) {
       ExemplarMarshaler[] exemplarMarshalers =
           ExemplarMarshaler.createRepeated(point.getExemplars());
-      AttributeMarshaler[] attributeMarshalers =
-          AttributeMarshaler.createRepeated(point.getAttributes());
+      KeyValueMarshaler[] attributeMarshalers =
+          KeyValueMarshaler.createRepeated(point.getAttributes());
 
-      final long value;
       final ProtoFieldInfo valueField;
       if (point instanceof LongPointData) {
-        value = ((LongPointData) point).getValue();
         valueField = NumberDataPoint.AS_INT;
       } else {
         assert point instanceof DoublePointData;
-        value = Double.doubleToRawLongBits(((DoublePointData) point).getValue());
         valueField = NumberDataPoint.AS_DOUBLE;
       }
 
       return new NumberDataPointMarshaler(
           point.getStartEpochNanos(),
           point.getEpochNanos(),
-          value,
+          point,
           valueField,
           exemplarMarshalers,
           attributeMarshalers);
@@ -669,12 +663,12 @@ public final class MetricsRequestMarshaler extends MarshalerWithSize implements 
     private NumberDataPointMarshaler(
         long startTimeUnixNano,
         long timeUnixNano,
-        long value,
+        PointData value,
         ProtoFieldInfo valueField,
         ExemplarMarshaler[] exemplars,
-        AttributeMarshaler[] attributes) {
+        KeyValueMarshaler[] attributes) {
       super(
-          calculateSize(startTimeUnixNano, timeUnixNano, value, valueField, exemplars, attributes));
+          calculateSize(startTimeUnixNano, timeUnixNano, valueField, value, exemplars, attributes));
       this.startTimeUnixNano = startTimeUnixNano;
       this.timeUnixNano = timeUnixNano;
       this.value = value;
@@ -687,7 +681,11 @@ public final class MetricsRequestMarshaler extends MarshalerWithSize implements 
     public void writeTo(Serializer output) throws IOException {
       output.serializeFixed64(NumberDataPoint.START_TIME_UNIX_NANO, startTimeUnixNano);
       output.serializeFixed64(NumberDataPoint.TIME_UNIX_NANO, timeUnixNano);
-      output.serializeFixed64(valueField, value);
+      if (valueField == NumberDataPoint.AS_INT) {
+        output.serializeFixed64(valueField, ((LongPointData) value).getValue());
+      } else {
+        output.serializeDouble(valueField, ((DoublePointData) value).getValue());
+      }
       output.serializeRepeatedMessage(NumberDataPoint.EXEMPLARS, exemplars);
       output.serializeRepeatedMessage(NumberDataPoint.ATTRIBUTES, attributes);
     }
@@ -695,14 +693,18 @@ public final class MetricsRequestMarshaler extends MarshalerWithSize implements 
     private static int calculateSize(
         long startTimeUnixNano,
         long timeUnixNano,
-        long value,
         ProtoFieldInfo valueField,
+        PointData value,
         ExemplarMarshaler[] exemplars,
-        AttributeMarshaler[] attributes) {
+        KeyValueMarshaler[] attributes) {
       int size = 0;
       size += MarshalerUtil.sizeFixed64(NumberDataPoint.START_TIME_UNIX_NANO, startTimeUnixNano);
       size += MarshalerUtil.sizeFixed64(NumberDataPoint.TIME_UNIX_NANO, timeUnixNano);
-      size += MarshalerUtil.sizeFixed64(valueField, value);
+      if (valueField == NumberDataPoint.AS_INT) {
+        size += MarshalerUtil.sizeFixed64(valueField, ((LongPointData) value).getValue());
+      } else {
+        size += MarshalerUtil.sizeDouble(valueField, ((DoublePointData) value).getValue());
+      }
       size += MarshalerUtil.sizeRepeatedMessage(NumberDataPoint.EXEMPLARS, exemplars);
       size += MarshalerUtil.sizeRepeatedMessage(NumberDataPoint.ATTRIBUTES, attributes);
       return size;
@@ -713,14 +715,13 @@ public final class MetricsRequestMarshaler extends MarshalerWithSize implements 
 
     private final long timeUnixNano;
 
-    // Always fixed64, for a double it's the bits themselves.
-    private final long value;
+    private final Exemplar value;
     private final ProtoFieldInfo valueField;
 
-    private final byte[] spanId;
-    private final byte[] traceId;
+    @Nullable private final String spanId;
+    @Nullable private final String traceId;
 
-    private final AttributeMarshaler[] filteredAttributeMarshalers;
+    private final KeyValueMarshaler[] filteredAttributeMarshalers;
 
     static ExemplarMarshaler[] createRepeated(List<Exemplar> exemplars) {
       int numExemplars = exemplars.size();
@@ -732,43 +733,36 @@ public final class MetricsRequestMarshaler extends MarshalerWithSize implements 
     }
 
     private static ExemplarMarshaler create(Exemplar exemplar) {
-      AttributeMarshaler[] attributeMarshalers =
-          AttributeMarshaler.createRepeated(exemplar.getFilteredAttributes());
+      KeyValueMarshaler[] attributeMarshalers =
+          KeyValueMarshaler.createRepeated(exemplar.getFilteredAttributes());
 
-      final long value;
       final ProtoFieldInfo valueField;
       if (exemplar instanceof LongExemplar) {
-        value = ((LongExemplar) exemplar).getValue();
         valueField = io.opentelemetry.proto.metrics.v1.internal.Exemplar.AS_INT;
       } else {
         assert exemplar instanceof DoubleExemplar;
-        value = Double.doubleToRawLongBits(((DoubleExemplar) exemplar).getValue());
         valueField = io.opentelemetry.proto.metrics.v1.internal.Exemplar.AS_DOUBLE;
       }
 
-      byte[] spanId = MarshalerUtil.EMPTY_BYTES;
-      if (exemplar.getSpanId() != null) {
-        spanId = OtelEncodingUtils.bytesFromBase16(exemplar.getSpanId(), SpanId.getLength());
-      }
-      byte[] traceId = MarshalerUtil.EMPTY_BYTES;
-      if (exemplar.getTraceId() != null) {
-        traceId = OtelEncodingUtils.bytesFromBase16(exemplar.getTraceId(), TraceId.getLength());
-      }
-
       return new ExemplarMarshaler(
-          exemplar.getEpochNanos(), value, valueField, spanId, traceId, attributeMarshalers);
+          exemplar.getEpochNanos(),
+          exemplar,
+          valueField,
+          exemplar.getSpanId(),
+          exemplar.getTraceId(),
+          attributeMarshalers);
     }
 
     private ExemplarMarshaler(
         long timeUnixNano,
-        long value,
+        Exemplar value,
         ProtoFieldInfo valueField,
-        byte[] spanId,
-        byte[] traceId,
-        AttributeMarshaler[] filteredAttributeMarshalers) {
+        @Nullable String spanId,
+        @Nullable String traceId,
+        KeyValueMarshaler[] filteredAttributeMarshalers) {
       super(
           calculateSize(
-              timeUnixNano, value, valueField, spanId, traceId, filteredAttributeMarshalers));
+              timeUnixNano, valueField, value, spanId, traceId, filteredAttributeMarshalers));
       this.timeUnixNano = timeUnixNano;
       this.value = value;
       this.valueField = valueField;
@@ -781,9 +775,14 @@ public final class MetricsRequestMarshaler extends MarshalerWithSize implements 
     public void writeTo(Serializer output) throws IOException {
       output.serializeFixed64(
           io.opentelemetry.proto.metrics.v1.internal.Exemplar.TIME_UNIX_NANO, timeUnixNano);
-      output.serializeFixed64(valueField, value);
-      output.serializeBytes(io.opentelemetry.proto.metrics.v1.internal.Exemplar.SPAN_ID, spanId);
-      output.serializeBytes(io.opentelemetry.proto.metrics.v1.internal.Exemplar.TRACE_ID, traceId);
+      if (valueField == io.opentelemetry.proto.metrics.v1.internal.Exemplar.AS_INT) {
+        output.serializeFixed64(valueField, ((LongExemplar) value).getValue());
+      } else {
+        output.serializeDouble(valueField, ((DoubleExemplar) value).getValue());
+      }
+      output.serializeSpanId(io.opentelemetry.proto.metrics.v1.internal.Exemplar.SPAN_ID, spanId);
+      output.serializeTraceId(
+          io.opentelemetry.proto.metrics.v1.internal.Exemplar.TRACE_ID, traceId);
       output.serializeRepeatedMessage(
           io.opentelemetry.proto.metrics.v1.internal.Exemplar.FILTERED_ATTRIBUTES,
           filteredAttributeMarshalers);
@@ -791,21 +790,25 @@ public final class MetricsRequestMarshaler extends MarshalerWithSize implements 
 
     private static int calculateSize(
         long timeUnixNano,
-        long value,
         ProtoFieldInfo valueField,
-        byte[] spanId,
-        byte[] traceId,
-        AttributeMarshaler[] filteredAttributeMarshalers) {
+        Exemplar value,
+        @Nullable String spanId,
+        @Nullable String traceId,
+        KeyValueMarshaler[] filteredAttributeMarshalers) {
       int size = 0;
       size +=
           MarshalerUtil.sizeFixed64(
               io.opentelemetry.proto.metrics.v1.internal.Exemplar.TIME_UNIX_NANO, timeUnixNano);
-      size += MarshalerUtil.sizeFixed64(valueField, value);
+      if (valueField == io.opentelemetry.proto.metrics.v1.internal.Exemplar.AS_INT) {
+        size += MarshalerUtil.sizeFixed64(valueField, ((LongExemplar) value).getValue());
+      } else {
+        size += MarshalerUtil.sizeDouble(valueField, ((DoubleExemplar) value).getValue());
+      }
       size +=
-          MarshalerUtil.sizeBytes(
+          MarshalerUtil.sizeSpanId(
               io.opentelemetry.proto.metrics.v1.internal.Exemplar.SPAN_ID, spanId);
       size +=
-          MarshalerUtil.sizeBytes(
+          MarshalerUtil.sizeTraceId(
               io.opentelemetry.proto.metrics.v1.internal.Exemplar.TRACE_ID, traceId);
       size +=
           MarshalerUtil.sizeRepeatedMessage(
