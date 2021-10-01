@@ -12,6 +12,7 @@ import com.linecorp.armeria.server.ServerBuilder;
 import com.linecorp.armeria.server.grpc.GrpcService;
 import com.linecorp.armeria.testing.junit5.server.ServerExtension;
 import io.grpc.stub.StreamObserver;
+import io.grpc.Context.CancellableContext;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.metrics.LongCounter;
@@ -172,62 +173,66 @@ class OtlpExporterIntegrationTest {
             .setResource(RESOURCE)
             .build();
 
-    SpanContext linkContext =
+    // Make sure cancelled gRPC context has no influence.
+    CancellableContext withCancellation = io.grpc.Context.current().withCancellation();
+    withCancellation.run(() -> {
+        withCancellation.cancel(new Throwable());
+        SpanContext linkContext =
         SpanContext.create(
             IdGenerator.random().generateTraceId(),
             IdGenerator.random().generateSpanId(),
             TraceFlags.getDefault(),
             TraceState.getDefault());
-    Span span =
-        tracerProvider
-            .get(OtlpExporterIntegrationTest.class.getName())
-            .spanBuilder("my span name")
-            .addLink(linkContext)
-            .startSpan();
-    span.setAttribute("key", "value");
-    span.addEvent("event");
-    span.end();
+        Span span =
+            tracerProvider
+                .get(OtlpExporterIntegrationTest.class.getName())
+                .spanBuilder("my span name")
+                .addLink(linkContext)
+                .startSpan();
+        span.setAttribute("key", "value");
+        span.addEvent("event");
+        span.end();
+        Awaitility.await()
+            .atMost(Duration.ofSeconds(30))
+            .until(() -> grpcServer.traceRequests.size() == 1);
 
-    Awaitility.await()
-        .atMost(Duration.ofSeconds(30))
-        .until(() -> grpcServer.traceRequests.size() == 1);
+        ExportTraceServiceRequest request = grpcServer.traceRequests.get(0);
+        assertThat(request.getResourceSpansCount()).isEqualTo(1);
 
-    ExportTraceServiceRequest request = grpcServer.traceRequests.get(0);
-    assertThat(request.getResourceSpansCount()).isEqualTo(1);
-
-    ResourceSpans resourceSpans = request.getResourceSpans(0);
-    assertThat(resourceSpans.getResource().getAttributesList())
-        .contains(
-            KeyValue.newBuilder()
-                .setKey(ResourceAttributes.SERVICE_NAME.getKey())
-                .setValue(AnyValue.newBuilder().setStringValue("integration test").build())
-                .build());
-    assertThat(resourceSpans.getInstrumentationLibrarySpansCount()).isEqualTo(1);
-
-    InstrumentationLibrarySpans ilSpans = resourceSpans.getInstrumentationLibrarySpans(0);
-    assertThat(ilSpans.getInstrumentationLibrary().getName())
-        .isEqualTo(OtlpExporterIntegrationTest.class.getName());
-    assertThat(ilSpans.getSpansCount()).isEqualTo(1);
-
-    io.opentelemetry.proto.trace.v1.Span protoSpan = ilSpans.getSpans(0);
-    assertThat(protoSpan.getTraceId().toByteArray())
-        .isEqualTo(span.getSpanContext().getTraceIdBytes());
-    assertThat(protoSpan.getSpanId().toByteArray())
-        .isEqualTo(span.getSpanContext().getSpanIdBytes());
-    assertThat(protoSpan.getName()).isEqualTo("my span name");
-    assertThat(protoSpan.getAttributesList())
-        .isEqualTo(
-            Collections.singletonList(
+        ResourceSpans resourceSpans = request.getResourceSpans(0);
+        assertThat(resourceSpans.getResource().getAttributesList())
+            .contains(
                 KeyValue.newBuilder()
-                    .setKey("key")
-                    .setValue(AnyValue.newBuilder().setStringValue("value").build())
-                    .build()));
-    assertThat(protoSpan.getEventsCount()).isEqualTo(1);
-    assertThat(protoSpan.getEvents(0).getName()).isEqualTo("event");
-    assertThat(protoSpan.getLinksCount()).isEqualTo(1);
-    Link link = protoSpan.getLinks(0);
-    assertThat(link.getTraceId().toByteArray()).isEqualTo(linkContext.getTraceIdBytes());
-    assertThat(link.getSpanId().toByteArray()).isEqualTo(linkContext.getSpanIdBytes());
+                    .setKey(ResourceAttributes.SERVICE_NAME.getKey())
+                    .setValue(AnyValue.newBuilder().setStringValue("integration test").build())
+                    .build());
+        assertThat(resourceSpans.getInstrumentationLibrarySpansCount()).isEqualTo(1);
+
+        InstrumentationLibrarySpans ilSpans = resourceSpans.getInstrumentationLibrarySpans(0);
+        assertThat(ilSpans.getInstrumentationLibrary().getName())
+            .isEqualTo(OtlpExporterIntegrationTest.class.getName());
+        assertThat(ilSpans.getSpansCount()).isEqualTo(1);
+
+        io.opentelemetry.proto.trace.v1.Span protoSpan = ilSpans.getSpans(0);
+        assertThat(protoSpan.getTraceId().toByteArray())
+            .isEqualTo(span.getSpanContext().getTraceIdBytes());
+        assertThat(protoSpan.getSpanId().toByteArray())
+            .isEqualTo(span.getSpanContext().getSpanIdBytes());
+        assertThat(protoSpan.getName()).isEqualTo("my span name");
+        assertThat(protoSpan.getAttributesList())
+            .isEqualTo(
+                Collections.singletonList(
+                    KeyValue.newBuilder()
+                        .setKey("key")
+                        .setValue(AnyValue.newBuilder().setStringValue("value").build())
+                        .build()));
+        assertThat(protoSpan.getEventsCount()).isEqualTo(1);
+        assertThat(protoSpan.getEvents(0).getName()).isEqualTo("event");
+        assertThat(protoSpan.getLinksCount()).isEqualTo(1);
+        Link link = protoSpan.getLinks(0);
+        assertThat(link.getTraceId().toByteArray()).isEqualTo(linkContext.getTraceIdBytes());
+        assertThat(link.getSpanId().toByteArray()).isEqualTo(linkContext.getSpanIdBytes());
+    });
   }
 
   @Test
