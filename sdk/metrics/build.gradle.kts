@@ -54,3 +54,7 @@ tasks {
     dependsOn(testing.suites)
   }
 }
+
+jmh {
+  includes.set(listOf("io.opentelemetry.sdk.metrics.internal.state.ExponentialCounterBenchmarks"))
+}

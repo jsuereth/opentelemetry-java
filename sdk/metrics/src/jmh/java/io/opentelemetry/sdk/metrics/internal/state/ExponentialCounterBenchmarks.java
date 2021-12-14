@@ -25,41 +25,34 @@ import org.openjdk.jmh.annotations.Warmup;
 @Measurement(iterations = 10, time = 1)
 @Warmup(iterations = 5, time = 1)
 @Fork(1)
+@Threads(value = 1)
 public class ExponentialCounterBenchmarks {
 
   @State(Scope.Thread)
   public static class ThreadState {
-    @Param ExponentialCounterOption counterOption;
-    @Param ExponentialCounterIndexGen indexOption;
+    @Param({"100", "1000"})
+    int recordings;
+
+    @Param ExponentialCounterIndexGen yIndexOption;
+    @Param ExponentialCounterOption zCounterOption;
 
     private ExponentialCounter counter;
 
-    @Setup(Level.Trial)
+    @Setup(Level.Iteration)
     public final void setup() {
-      this.counter = counterOption.getCounter();
+      this.counter = zCounterOption.getCounter();
     }
 
     public void record() {
-      int idx = this.indexOption.getIndex();
-      this.counter.increment(idx, 1);
+      for (int i = 0; i < this.recordings; i++) {
+        int idx = this.yIndexOption.getIndex();
+        this.counter.increment(idx, 1);
+      }
     }
   }
 
   @Benchmark
-  @Threads(value = 10)
-  public void increment_10Threads(ThreadState threadState) {
-    threadState.record();
-  }
-
-  @Benchmark
-  @Threads(value = 5)
-  public void increment_5Threads(ThreadState threadState) {
-    threadState.record();
-  }
-
-  @Benchmark
-  @Threads(value = 1)
-  public void increment_1Threads(ThreadState threadState) {
+  public void increment(ThreadState threadState) {
     threadState.record();
   }
 }

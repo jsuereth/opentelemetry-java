@@ -11,7 +11,8 @@ import java.util.function.Supplier;
 @SuppressWarnings("ImmutableEnumChecker")
 public enum ExponentialCounterOption {
   MAP_COUNTER(() -> new MapCounter()),
-  CIRCULAR_FIXED_BUFFER_COUNTER(() -> new CircularBufferCounter());
+  CIRCULAR_FIXED_BUFFER_COUNTER(() -> new CircularBufferCounter()),
+  ADAPTING_CIRCULAR_FIXED_BUFFER_COUNTER(() -> new AdaptingCircularBufferCounter());
 
   private final Supplier<ExponentialCounter> counterSupplier;
 

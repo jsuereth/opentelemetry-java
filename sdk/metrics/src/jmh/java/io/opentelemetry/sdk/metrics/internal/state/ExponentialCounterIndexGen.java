@@ -11,8 +11,7 @@ import java.util.function.IntSupplier;
 @SuppressWarnings("ImmutableEnumChecker")
 public enum ExponentialCounterIndexGen {
   FULL_RANDOM(() -> ThreadLocalRandom.current().nextInt(320)),
-  RANDOM_WITHIN_20(() -> ThreadLocalRandom.current().nextInt(20)),
-  SINGLE_VALUE(() -> 1);
+  RANDOM_WITHIN_20(() -> ThreadLocalRandom.current().nextInt(20));
 
   private final IntSupplier indexSupplier;
 

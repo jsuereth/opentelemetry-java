@@ -7,20 +7,20 @@ package io.opentelemetry.sdk.metrics.internal.state;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import java.util.stream.Stream;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
-public class CircularBufferCounterTest {
+public class ExponentialCounterTest {
 
-  private ExponentialCounter counter;
-
-  @BeforeEach
-  void setUp() {
-    counter = new CircularBufferCounter();
+  static Stream<ExponentialCounter> counterProviders() {
+    return Stream.of(
+        new AdaptingCircularBufferCounter(), new CircularBufferCounter(), new MapCounter());
   }
 
-  @Test
-  void expandLower() {
+  @ParameterizedTest
+  @MethodSource("counterProviders")
+  void expandLower(ExponentialCounter counter) {
     assertThat(counter.increment(10, 1)).isTrue();
     // Add BEFORE the initial see (array index 0) and make sure we wrap around the datastructure.
     assertThat(counter.increment(0, 1)).isTrue();
@@ -37,8 +37,9 @@ public class CircularBufferCounterTest {
     assertThat(counter.getIndexEnd()).isEqualTo(20);
   }
 
-  @Test
-  void shouldFailAtLimit() {
+  @ParameterizedTest
+  @MethodSource("counterProviders")
+  void shouldFailAtLimit(ExponentialCounter counter) {
     assertThat(counter.increment(0, 1)).isTrue();
     assertThat(counter.increment(319, 1)).isTrue();
     // Check state
