@@ -7,8 +7,9 @@ package io.opentelemetry.sdk.metrics.internal.aggregator;
 
 import io.opentelemetry.sdk.internal.PrimitiveLongList;
 import io.opentelemetry.sdk.metrics.data.ExponentialHistogramBuckets;
+import io.opentelemetry.sdk.metrics.internal.state.AdaptingCircularBufferCounter;
 import io.opentelemetry.sdk.metrics.internal.state.ExponentialCounter;
-import io.opentelemetry.sdk.metrics.internal.state.MapCounter;
+import io.opentelemetry.sdk.metrics.internal.state.ExponentialCounterFactory;
 import java.util.Collections;
 import java.util.List;
 import javax.annotation.Nonnull;
@@ -22,25 +23,25 @@ import javax.annotation.Nullable;
  * at any time.
  */
 final class DoubleExponentialHistogramBuckets implements ExponentialHistogramBuckets {
-
-  public static final int MAX_SCALE = 20;
-
-  private static final int MAX_BUCKETS = MapCounter.MAX_SIZE;
-
+  private final ExponentialCounterFactory countFactory;
   private ExponentialCounter counts;
-  private BucketMapper bucketMapper;
   private int scale;
 
+  // TODO - remove
   DoubleExponentialHistogramBuckets() {
-    this.counts = new MapCounter();
-    this.bucketMapper = new LogarithmMapper(MAX_SCALE);
-    this.scale = MAX_SCALE;
+    this(new AdaptingCircularBufferCounter.Factory());
+  }
+
+  DoubleExponentialHistogramBuckets(ExponentialCounterFactory countFactory) {
+    this.countFactory = countFactory;
+    this.counts = countFactory.create();
+    this.scale = ExponentialBucketHistogramUtils.MAX_SCALE;
   }
 
   // For copying
   DoubleExponentialHistogramBuckets(DoubleExponentialHistogramBuckets buckets) {
-    this.counts = new MapCounter(buckets.counts); // copy counts
-    this.bucketMapper = new LogarithmMapper(buckets.scale);
+    this.countFactory = buckets.countFactory;
+    this.counts = buckets.countFactory.copy(buckets.counts);
     this.scale = buckets.scale;
   }
 
@@ -49,7 +50,7 @@ final class DoubleExponentialHistogramBuckets implements ExponentialHistogramBuc
       // Guarded by caller. If passed 0 it would be a bug in the SDK.
       throw new IllegalStateException("Illegal attempted recording of zero at bucket level.");
     }
-    int index = bucketMapper.valueToIndex(Math.abs(value));
+    int index = ExponentialBucketHistogramUtils.valueToIndex(scale, Math.abs(value));
     return this.counts.increment(index, 1);
   }
 
@@ -90,7 +91,7 @@ final class DoubleExponentialHistogramBuckets implements ExponentialHistogramBuc
     }
 
     if (!counts.isEmpty()) {
-      ExponentialCounter newCounts = new MapCounter();
+      ExponentialCounter newCounts = countFactory.create();
 
       for (int i = counts.getIndexStart(); i <= counts.getIndexEnd(); i++) {
         long count = counts.get(i);
@@ -105,7 +106,6 @@ final class DoubleExponentialHistogramBuckets implements ExponentialHistogramBuc
     }
 
     this.scale = this.scale - by;
-    this.bucketMapper = new LogarithmMapper(scale);
   }
 
   /**
@@ -209,7 +209,7 @@ final class DoubleExponentialHistogramBuckets implements ExponentialHistogramBuc
    * @return The required scale reduction in order to fit the value in these buckets.
    */
   int getScaleReduction(double value) {
-    long index = bucketMapper.valueToIndex(Math.abs(value));
+    long index = ExponentialBucketHistogramUtils.valueToIndex(scale, Math.abs(value));
     long newStart = Math.min(index, counts.getIndexStart());
     long newEnd = Math.max(index, counts.getIndexEnd());
     return getScaleReduction(newStart, newEnd);
@@ -218,7 +218,7 @@ final class DoubleExponentialHistogramBuckets implements ExponentialHistogramBuc
   int getScaleReduction(long newStart, long newEnd) {
     int scaleReduction = 0;
 
-    while (newEnd - newStart + 1 > MAX_BUCKETS) {
+    while (newEnd - newStart + 1 > ExponentialBucketHistogramUtils.MAX_BUCKETS) {
       newStart >>= 1;
       newEnd >>= 1;
       scaleReduction++;
@@ -263,19 +263,5 @@ final class DoubleExponentialHistogramBuckets implements ExponentialHistogramBuc
         + ", counts: "
         + counts
         + " }";
-  }
-
-  private static class LogarithmMapper implements BucketMapper {
-
-    private final double scaleFactor;
-
-    LogarithmMapper(int scale) {
-      this.scaleFactor = Math.scalb(1D / Math.log(2), scale);
-    }
-
-    @Override
-    public int valueToIndex(double value) {
-      return (int) Math.floor(Math.log(value) * scaleFactor);
-    }
   }
 }

@@ -5,6 +5,8 @@
 
 package io.opentelemetry.sdk.metrics.internal.state;
 
+import io.opentelemetry.sdk.metrics.internal.aggregator.ExponentialBucketHistogramUtils;
+
 /**
  * A circle-buffer-backed exponential counter.
  *
@@ -16,10 +18,9 @@ package io.opentelemetry.sdk.metrics.internal.state;
  */
 public class CircularBufferCounter implements ExponentialCounter {
   private static final int NULL_INDEX = Integer.MIN_VALUE;
-  public static final int MAX_SIZE = 320;
 
   // TODO - we want to scale this in two ways, size of int used + size of backing array.
-  private final int[] backing = new int[MAX_SIZE];
+  private final int[] backing = new int[ExponentialBucketHistogramUtils.MAX_BUCKETS];
   private int endIndex = NULL_INDEX;
   private int startIndex = NULL_INDEX;
   private int baseIndex = NULL_INDEX;

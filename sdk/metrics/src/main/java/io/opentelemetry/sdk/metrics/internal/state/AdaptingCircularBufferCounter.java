@@ -5,6 +5,8 @@
 
 package io.opentelemetry.sdk.metrics.internal.state;
 
+import io.opentelemetry.sdk.metrics.internal.aggregator.ExponentialBucketHistogramUtils;
+
 /**
  * A circle-buffer-backed exponential counter.
  *
@@ -16,11 +18,42 @@ package io.opentelemetry.sdk.metrics.internal.state;
  */
 public class AdaptingCircularBufferCounter implements ExponentialCounter {
   private static final int NULL_INDEX = Integer.MIN_VALUE;
-  public static final int MAX_SIZE = 320;
-  private int endIndex = NULL_INDEX;
-  private int startIndex = NULL_INDEX;
-  private int baseIndex = NULL_INDEX;
-  private final AdaptingIntegerArray backing = new AdaptingIntegerArray(MAX_SIZE);
+  private int endIndex;
+  private int startIndex;
+  private int baseIndex;
+  private final AdaptingIntegerArray backing;
+
+  /** Instantiate a MapCounter. */
+  public AdaptingCircularBufferCounter() {
+    this.backing = new AdaptingIntegerArray(ExponentialBucketHistogramUtils.MAX_BUCKETS);
+    this.endIndex = NULL_INDEX;
+    this.startIndex = NULL_INDEX;
+    this.baseIndex = NULL_INDEX;
+  }
+
+  /**
+   * Create an independent copy of another ExponentialCounter.
+   *
+   * @param otherCounter another exponential counter to make a deep copy of.
+   */
+  public AdaptingCircularBufferCounter(ExponentialCounter otherCounter) {
+    if (otherCounter instanceof AdaptingCircularBufferCounter) {
+      this.startIndex = otherCounter.getIndexStart();
+      this.endIndex = otherCounter.getIndexEnd();
+      this.baseIndex = ((AdaptingCircularBufferCounter) otherCounter).baseIndex;
+      this.backing =
+          new AdaptingIntegerArray(((AdaptingCircularBufferCounter) otherCounter).backing);
+    } else {
+      this.backing = new AdaptingIntegerArray(ExponentialBucketHistogramUtils.MAX_BUCKETS);
+      // copy values
+      for (int i = otherCounter.getIndexStart(); i <= otherCounter.getIndexEnd(); i++) {
+        long val = otherCounter.get(i);
+        if (val != 0) {
+          this.increment(i, val);
+        }
+      }
+    }
+  }
 
   @Override
   public int getIndexStart() {
@@ -84,5 +117,18 @@ public class AdaptingCircularBufferCounter implements ExponentialCounter {
   @Override
   public String toString() {
     return "AdaptingCircularBuffer";
+  }
+
+  /** Factory that creates/copys this bucket type. */
+  public static final class Factory implements ExponentialCounterFactory {
+    @Override
+    public ExponentialCounter create() {
+      return new AdaptingCircularBufferCounter();
+    }
+
+    @Override
+    public ExponentialCounter copy(ExponentialCounter other) {
+      return new AdaptingCircularBufferCounter(other);
+    }
   }
 }

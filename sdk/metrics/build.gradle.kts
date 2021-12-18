@@ -56,5 +56,17 @@ tasks {
 }
 
 jmh {
-  includes.set(listOf("io.opentelemetry.sdk.metrics.internal.state.ExponentialCounterBenchmarks"))
+  // includes.set(listOf("io.opentelemetry.sdk.metrics.internal.state.ExponentialCounterBenchmarks"))
+  includes.set(listOf("io.opentelemetry.sdk.metrics.internal.aggregator.HistogramBenchmark"))
+  // includes.set(listOf("io.opentelemetry.sdk.metrics.MetricsBenchmarks"))
+
+  val valueGen = objects.listProperty<String>()
+  valueGen.add("RANDOM_WITHIN_2K")
+
+  val aggregation = objects.listProperty<String>()
+  aggregation.add("EXPONENTIAL")
+  // profilers.add("stack:period=1;lines=20;top=5;detailLine=true")
+  benchmarkParameters.put("valueGen", valueGen)
+  // benchmarkParameters.put("aggregation", aggregation)
+  // mapOf("valueGen" to listOf("RANDOM_WITHIN_2K"), "aggregation" to listOf("EXPONENTIAL")))
 }

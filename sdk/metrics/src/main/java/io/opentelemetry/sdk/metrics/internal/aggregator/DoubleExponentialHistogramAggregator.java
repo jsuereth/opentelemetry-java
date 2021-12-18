@@ -144,7 +144,7 @@ final class DoubleExponentialHistogramAggregator
       super(reservoir);
       this.sum = 0;
       this.zeroCount = 0;
-      this.scale = DoubleExponentialHistogramBuckets.MAX_SCALE;
+      this.scale = ExponentialBucketHistogramUtils.MAX_SCALE;
       this.positiveBuckets = new DoubleExponentialHistogramBuckets();
       this.negativeBuckets = new DoubleExponentialHistogramBuckets();
     }
@@ -157,6 +157,7 @@ final class DoubleExponentialHistogramAggregator
               scale, sum, positiveBuckets, negativeBuckets, zeroCount, exemplars);
       this.sum = 0;
       this.zeroCount = 0;
+      // TODO - Preserve scale + int-size
       this.positiveBuckets = new DoubleExponentialHistogramBuckets();
       this.negativeBuckets = new DoubleExponentialHistogramBuckets();
       return acc;

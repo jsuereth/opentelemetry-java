@@ -5,6 +5,7 @@
 
 package io.opentelemetry.sdk.metrics.internal.state;
 
+import java.util.Arrays;
 import javax.annotation.Nullable;
 
 /**
@@ -35,9 +36,32 @@ public class AdaptingIntegerArray {
   /** The current byte size of integer cells in this array. */
   private byte cellSizeBytes;
 
+  /** Construct a new growing array of a particular size. */
   public AdaptingIntegerArray(int size) {
     this.byteBacking = new byte[size];
     this.cellSizeBytes = (byte) Byte.BYTES;
+  }
+
+  /** Copy the values of another array into this one. */
+  @SuppressWarnings("NullAway")
+  public AdaptingIntegerArray(AdaptingIntegerArray other) {
+    this.cellSizeBytes = other.cellSizeBytes;
+    switch (cellSizeBytes) {
+      case Byte.BYTES:
+        this.byteBacking = Arrays.copyOf(other.byteBacking, other.byteBacking.length);
+        break;
+      case Short.BYTES:
+        this.shortBacking = Arrays.copyOf(other.shortBacking, other.shortBacking.length);
+        break;
+      case Integer.BYTES:
+        this.intBacking = Arrays.copyOf(other.intBacking, other.intBacking.length);
+        break;
+      case Long.BYTES:
+        this.longBacking = Arrays.copyOf(other.longBacking, other.longBacking.length);
+        break;
+      default:
+        throw new IllegalStateException("Unexpected integer size: " + this.cellSizeBytes);
+    }
   }
 
   @SuppressWarnings("NullAway")

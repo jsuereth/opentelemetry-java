@@ -5,6 +5,7 @@
 
 package io.opentelemetry.sdk.metrics.internal.state;
 
+import io.opentelemetry.sdk.metrics.internal.aggregator.ExponentialBucketHistogramUtils;
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,8 +20,6 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class MapCounter implements ExponentialCounter {
 
-  public static final int MAX_SIZE = 320;
-
   private static final int NULL_INDEX = Integer.MIN_VALUE;
 
   private final Map<Integer, AtomicLong> backing;
@@ -29,7 +28,9 @@ public class MapCounter implements ExponentialCounter {
 
   /** Instantiate a MapCounter. */
   public MapCounter() {
-    this.backing = new ConcurrentHashMap<>((int) Math.ceil(MAX_SIZE / 0.75) + 1);
+    this.backing =
+        new ConcurrentHashMap<>(
+            (int) Math.ceil(ExponentialBucketHistogramUtils.MAX_BUCKETS / 0.75) + 1);
     this.indexEnd = NULL_INDEX;
     this.indexStart = NULL_INDEX;
   }
@@ -40,7 +41,9 @@ public class MapCounter implements ExponentialCounter {
    * @param otherCounter another exponential counter to make a deep copy of.
    */
   public MapCounter(ExponentialCounter otherCounter) {
-    this.backing = new ConcurrentHashMap<>((int) Math.ceil(MAX_SIZE / 0.75) + 1);
+    this.backing =
+        new ConcurrentHashMap<>(
+            (int) Math.ceil(ExponentialBucketHistogramUtils.MAX_BUCKETS / 0.75) + 1);
     this.indexStart = otherCounter.getIndexStart();
     this.indexEnd = otherCounter.getIndexEnd();
 
@@ -74,12 +77,12 @@ public class MapCounter implements ExponentialCounter {
 
     // Extend window if possible. if it would exceed maxSize, then return false.
     if (index > indexEnd) {
-      if (index - indexStart + 1 > MAX_SIZE) {
+      if (index - indexStart + 1 > ExponentialBucketHistogramUtils.MAX_BUCKETS) {
         return false;
       }
       indexEnd = index;
     } else if (index < indexStart) {
-      if (indexEnd - index + 1 > MAX_SIZE) {
+      if (indexEnd - index + 1 > ExponentialBucketHistogramUtils.MAX_BUCKETS) {
         return false;
       }
       indexStart = index;
@@ -126,5 +129,19 @@ public class MapCounter implements ExponentialCounter {
   @Override
   public String toString() {
     return backing.toString();
+  }
+
+  /** Factory that creates/copies this bucket type. */
+  public static final class Factory implements ExponentialCounterFactory {
+
+    @Override
+    public ExponentialCounter create() {
+      return new MapCounter();
+    }
+
+    @Override
+    public ExponentialCounter copy(ExponentialCounter other) {
+      return new MapCounter(other);
+    }
   }
 }
