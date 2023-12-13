@@ -63,6 +63,24 @@ public enum TestSdk {
               .build()
               .get("io.opentelemetry.sdk.metrics");
         }
+      }),
+  SDK_CUMULATIVE_EXP_HISTO(
+      new SdkBuilder() {
+        @Override
+        Meter build() {
+          return SdkMeterProvider.builder()
+              .setClock(Clock.getDefault())
+              .setResource(Resource.empty())
+              // Must register reader for real SDK.
+              .registerMetricReader(InMemoryMetricReader.create())
+              .registerView(
+                  InstrumentSelector.builder().setType(InstrumentType.HISTOGRAM).build(),
+                  View.builder()
+                      .setAggregation(Aggregation.base2ExponentialBucketHistogram())
+                      .build())
+              .build()
+              .get("io.opentelemetry.sdk.metrics");
+        }
       });
 
   private final SdkBuilder sdkBuilder;

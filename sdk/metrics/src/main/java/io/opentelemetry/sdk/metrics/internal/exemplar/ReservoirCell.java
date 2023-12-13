@@ -42,6 +42,28 @@ class ReservoirCell {
     this.clock = clock;
   }
 
+  /** Swaps the contents of this cell with another. */
+  synchronized void swap(ReservoirCell other) {
+    long tmpLongVlaue = longValue;
+    double tmpDoubleValue = doubleValue;
+    long tmpRecordTime = recordTime;
+    SpanContext tmpSpanContesxt = spanContext;
+    Attributes tmpAttributes = attributes;
+
+    synchronized (other) {
+      this.attributes = other.attributes;
+      other.attributes = tmpAttributes;
+      this.spanContext = other.spanContext;
+      other.spanContext = tmpSpanContesxt;
+      this.recordTime = other.recordTime;
+      other.recordTime = tmpRecordTime;
+      this.longValue = other.longValue;
+      other.longValue = tmpLongVlaue;
+      this.doubleValue = other.doubleValue;
+      other.doubleValue = tmpDoubleValue;
+    }
+  }
+
   /**
    * Record the long measurement to the cell.
    *

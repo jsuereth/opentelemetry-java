@@ -72,7 +72,7 @@ public final class Base2ExponentialHistogramAggregation implements Aggregation, 
             () ->
                 ExemplarReservoir.filtered(
                     exemplarFilter,
-                    ExemplarReservoir.doubleFixedSizeReservoir(
+                    ExemplarReservoir.doubleMinMaxVarOptReservoir(
                         Clock.getDefault(),
                         Runtime.getRuntime().availableProcessors(),
                         RandomSupplier.platformDefault())),

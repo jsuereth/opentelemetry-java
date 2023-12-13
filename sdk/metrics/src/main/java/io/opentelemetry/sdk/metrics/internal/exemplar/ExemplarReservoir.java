@@ -77,6 +77,16 @@ public interface ExemplarReservoir<T extends ExemplarData> {
     return new HistogramExemplarReservoir(clock, boundaries);
   }
 
+  static ExemplarReservoir<DoubleExemplarData> doubleMinMaxVarOptReservoir(
+      Clock clock, int size, Supplier<Random> randomSupplier) {
+    return MinMaxVarExemplarReservoir.createDouble(clock, size, randomSupplier);
+  }
+
+  static ExemplarReservoir<DoubleExemplarData> longMinMaxVarOptReservoir(
+      Clock clock, int size, Supplier<Random> randomSupplier) {
+    return MinMaxVarExemplarReservoir.createDouble(clock, size, randomSupplier);
+  }
+
   /** Offers a {@code double} measurement to be sampled. */
   void offerDoubleMeasurement(double value, Attributes attributes, Context context);
 
