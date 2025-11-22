@@ -5,13 +5,14 @@
 
 package io.opentelemetry.api.incubator.trace;
 
+import io.opentelemetry.api.incubator.entity.Entity;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.api.trace.TracerBuilder;
 import io.opentelemetry.api.trace.TracerProvider;
 import javax.annotation.concurrent.ThreadSafe;
 
 @ThreadSafe
-public class ExtendedDefaultTracerProvider implements TracerProvider {
+public class ExtendedDefaultTracerProvider implements ExtendedTracerProvider {
 
   private static final TracerProvider INSTANCE = new ExtendedDefaultTracerProvider();
 
@@ -35,4 +36,10 @@ public class ExtendedDefaultTracerProvider implements TracerProvider {
   }
 
   private ExtendedDefaultTracerProvider() {}
+
+  @Override
+  public ExtendedTracerProvider withEntity(Entity entity) {
+    // Default tracer is a noop.
+    return this;
+  }
 }

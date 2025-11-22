@@ -11,14 +11,18 @@ import io.opentelemetry.api.trace.TracerProvider;
 import io.opentelemetry.sdk.common.Clock;
 import io.opentelemetry.sdk.common.CompletableResultCode;
 import io.opentelemetry.sdk.common.InstrumentationScopeInfo;
+import io.opentelemetry.sdk.entity.internal.EntityUtil;
+import io.opentelemetry.sdk.entity.internal.SdkEntity;
 import io.opentelemetry.sdk.internal.ComponentRegistry;
 import io.opentelemetry.sdk.internal.ExceptionAttributeResolver;
 import io.opentelemetry.sdk.internal.ScopeConfigurator;
 import io.opentelemetry.sdk.resources.Resource;
+import io.opentelemetry.sdk.trace.internal.IgnoreShutdownSpanProcessor;
 import io.opentelemetry.sdk.trace.internal.SdkTracerProviderUtil;
 import io.opentelemetry.sdk.trace.internal.TracerConfig;
 import io.opentelemetry.sdk.trace.samplers.Sampler;
 import java.io.Closeable;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
@@ -161,6 +165,28 @@ public final class SdkTracerProvider implements TracerProvider, Closeable {
    */
   public CompletableResultCode forceFlush() {
     return sharedState.getActiveSpanProcessor().forceFlush();
+  }
+
+  /**
+   * Creates a new tracer, which reports agianst a sub-resource of this tracer.
+   *
+   * <p>This method is experimental so not public. You may reflectively call it using {@link
+   * SdkTracerProviderUtil#withEntity(SdkTracerProvider, SdkEntity)}.
+   */
+  SdkTracerProvider withEntity(SdkEntity entity) {
+    return new SdkTracerProvider(
+        sharedState.getClock(),
+        sharedState.getIdGenerator(),
+        // Construct a new resource, ensuring the new entity "wins" conflicts.
+        EntityUtil.addEntity(Resource.builder(), entity).build().merge(sharedState.getResource()),
+        sharedState::getSpanLimits,
+        sharedState.getSampler(),
+        // New span processor that ignores shutdown calls, as only the "primary" can shutdown the
+        // processing.
+        Collections.singletonList(
+            new IgnoreShutdownSpanProcessor(sharedState.getActiveSpanProcessor())),
+        tracerConfigurator,
+        sharedState.getExceptionAttributesResolver());
   }
 
   /**

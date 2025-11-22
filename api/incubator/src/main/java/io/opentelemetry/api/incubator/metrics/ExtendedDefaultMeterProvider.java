@@ -5,12 +5,13 @@
 
 package io.opentelemetry.api.incubator.metrics;
 
+import io.opentelemetry.api.incubator.entity.Entity;
 import io.opentelemetry.api.metrics.Meter;
 import io.opentelemetry.api.metrics.MeterBuilder;
 import io.opentelemetry.api.metrics.MeterProvider;
 
 /** A {@link MeterProvider} that does nothing. */
-public class ExtendedDefaultMeterProvider implements MeterProvider {
+public class ExtendedDefaultMeterProvider implements ExtendedMeterProvider {
   @Override
   public MeterBuilder meterBuilder(String instrumentationScopeName) {
     return BUILDER_INSTANCE;
@@ -41,5 +42,11 @@ public class ExtendedDefaultMeterProvider implements MeterProvider {
     public Meter build() {
       return ExtendedDefaultMeter.getNoop();
     }
+  }
+
+  @Override
+  public ExtendedMeterProvider withEntity(Entity entity) {
+    // Default is noop.
+    return this;
   }
 }

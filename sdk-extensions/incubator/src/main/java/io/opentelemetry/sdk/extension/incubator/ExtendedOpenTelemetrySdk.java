@@ -8,8 +8,12 @@ package io.opentelemetry.sdk.extension.incubator;
 import io.opentelemetry.api.incubator.ExtendedOpenTelemetry;
 import io.opentelemetry.api.incubator.config.ConfigProvider;
 import io.opentelemetry.api.incubator.config.DeclarativeConfigProperties;
+import io.opentelemetry.api.incubator.entity.Entity;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
+import io.opentelemetry.sdk.entity.internal.SdkEntity;
+import io.opentelemetry.sdk.extension.incubator.entity.internal.ExtendedEntityUtil;
 import io.opentelemetry.sdk.extension.incubator.fileconfig.SdkConfigProvider;
+import io.opentelemetry.sdk.trace.internal.SdkTracerProviderUtil;
 import java.io.Closeable;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.ThreadSafe;
@@ -82,5 +86,21 @@ public final class ExtendedOpenTelemetrySdk extends OpenTelemetrySdk
     private SdkConfigProvider unobfuscate() {
       return delegate;
     }
+  }
+
+  @Override
+  public ExtendedOpenTelemetry withEntity(Entity e) {
+    // TODO - this could throw a class-cast exception, do we need to handle this?
+    SdkEntity sdkEntity = ExtendedEntityUtil.convertEntity(e);
+    return ExtendedOpenTelemetrySdk.create(
+        OpenTelemetrySdk.builder()
+            .setTracerProvider(SdkTracerProviderUtil.withEntity(getSdkTracerProvider(), sdkEntity))
+            // TODO - withEntity
+            .setLoggerProvider(getSdkLoggerProvider())
+            // TODO - withEntity
+            .setMeterProvider(getSdkMeterProvider())
+            .setPropagators(getPropagators())
+            .build(),
+        getSdkConfigProvider());
   }
 }

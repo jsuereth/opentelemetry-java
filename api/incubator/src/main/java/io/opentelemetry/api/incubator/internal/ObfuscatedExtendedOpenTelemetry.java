@@ -8,6 +8,7 @@ package io.opentelemetry.api.incubator.internal;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.incubator.ExtendedOpenTelemetry;
 import io.opentelemetry.api.incubator.config.ConfigProvider;
+import io.opentelemetry.api.incubator.entity.Entity;
 import io.opentelemetry.api.logs.LoggerProvider;
 import io.opentelemetry.api.metrics.MeterProvider;
 import io.opentelemetry.api.trace.TracerBuilder;
@@ -64,5 +65,11 @@ public final class ObfuscatedExtendedOpenTelemetry implements ExtendedOpenTeleme
   @Override
   public ConfigProvider getConfigProvider() {
     return delegate.getConfigProvider();
+  }
+
+  @Override
+  public ExtendedOpenTelemetry withEntity(Entity e) {
+    // Layer the obfuscation.
+    return new ObfuscatedExtendedOpenTelemetry(delegate.withEntity(e));
   }
 }

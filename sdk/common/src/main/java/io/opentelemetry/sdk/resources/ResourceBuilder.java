@@ -8,7 +8,14 @@ package io.opentelemetry.sdk.resources;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.common.AttributesBuilder;
+import io.opentelemetry.sdk.entity.internal.EntityUtil;
+import io.opentelemetry.sdk.entity.internal.SdkEntity;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Set;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
@@ -21,6 +28,7 @@ public class ResourceBuilder {
 
   private final AttributesBuilder attributesBuilder = Attributes.builder();
   @Nullable private String schemaUrl;
+  private final List<SdkEntity> entities = new ArrayList<>();
 
   /**
    * Puts a String attribute into this.
@@ -192,8 +200,34 @@ public class ResourceBuilder {
     return this;
   }
 
+  /** Appends a new entity on to the end of the list of entities. */
+  ResourceBuilder add(SdkEntity e) {
+    this.entities.add(e);
+    return this;
+  }
+
+  /** Appends a new collection of entities on to the end of the list of entities. */
+  ResourceBuilder addAll(Collection<SdkEntity> entities) {
+    this.entities.addAll(entities);
+    return this;
+  }
+
   /** Create the {@link Resource} from this. */
   public Resource build() {
-    return Resource.create(attributesBuilder.build(), schemaUrl);
+    // What checks should we do on "real" resource here?
+    // Derive schemaUrl from entitiy, if able.
+    if (schemaUrl == null) {
+      Set<String> entitySchemas =
+          entities.stream().map(SdkEntity::getSchemaUrl).collect(Collectors.toSet());
+      if (entitySchemas.size() == 1) {
+        // Updated Entities use same schema, we can preserve it.
+        schemaUrl = entitySchemas.iterator().next();
+      }
+    }
+
+    // TODO - here we deal with conflicts between entities and raw attributes.
+    // When adding an entity, we remove any raw attributes it may conflict with.
+    this.attributesBuilder.removeIf(key -> EntityUtil.hasAttributeKey(this.entities, key));
+    return Resource.create(attributesBuilder.build(), schemaUrl, entities);
   }
 }
