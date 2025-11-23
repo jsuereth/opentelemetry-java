@@ -37,6 +37,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
@@ -53,9 +54,14 @@ public final class SdkMeterProvider implements MeterProvider, Closeable {
 
   private final List<RegisteredView> registeredViews;
   private final List<RegisteredReader> registeredReaders;
+  // External producers of metrics provided to this SDK.
   private final List<MetricProducer> metricProducers;
   private final MeterProviderSharedState sharedState;
   private final ComponentRegistry<SdkMeter> registry;
+  // This is a new data structure which will track, per-registered reader, the set of nested
+  // resources for which we have stored metrics.
+  private final ConcurrentHashMap<RegisteredReader, CopyOnWriteArrayList<CollectionRegistration>>
+      producers;
   private final ConcurrentMap<Resource, SdkMeterProvider> nested;
   private final AtomicBoolean isClosed = new AtomicBoolean(false);
   private final boolean isNested;
@@ -74,7 +80,8 @@ public final class SdkMeterProvider implements MeterProvider, Closeable {
     this.registeredReaders = outer.registeredReaders;
     // TODO - Update metric producers.  We need a new way to store/share data.
     // We are "erasing" too quickly in our storage set up for nested providers.
-    this.metricProducers = outer.metricProducers;
+    this.metricProducers = Collections.emptyList();
+    this.producers = outer.producers;
     this.meterConfigurator = outer.meterConfigurator;
     // New aspects for the shared provider.
     this.nested = new ConcurrentHashMap<>();
@@ -94,6 +101,15 @@ public final class SdkMeterProvider implements MeterProvider, Closeable {
                     registeredReaders,
                     getMeterConfig(instrumentationLibraryInfo)));
     this.isNested = true;
+    // Update "producers" to include leased-readers for this sub-resource.
+    this.producers.forEach(
+        (reader, collectionList) -> {
+          collectionList.add(
+              new PerResourceCollectionRegistration(
+                  Collections.singletonList(
+                      new LeasedMetricProducer(registry, sharedState, reader)),
+                  subResource));
+        });
   }
 
   SdkMeterProvider(
@@ -117,6 +133,7 @@ public final class SdkMeterProvider implements MeterProvider, Closeable {
                         ViewRegistry.create(entry.getKey(), entry.getValue(), registeredViews)))
             .collect(toList());
     this.metricProducers = metricProducers;
+    this.producers = new ConcurrentHashMap<>();
     this.sharedState =
         MeterProviderSharedState.create(clock, resource, exemplarFilter, startEpochNanos);
     this.registry =
@@ -131,9 +148,12 @@ public final class SdkMeterProvider implements MeterProvider, Closeable {
     for (RegisteredReader registeredReader : registeredReaders) {
       List<MetricProducer> readerMetricProducers = new ArrayList<>(metricProducers);
       readerMetricProducers.add(new LeasedMetricProducer(registry, sharedState, registeredReader));
+      CopyOnWriteArrayList<CollectionRegistration> myReg = new CopyOnWriteArrayList<>();
+      myReg.add(new PerResourceCollectionRegistration(readerMetricProducers, resource));
+      producers.put(registeredReader, myReg);
       registeredReader
           .getReader()
-          .register(new SdkCollectionRegistration(readerMetricProducers, sharedState));
+          .register(new SdkCollectionRegistration(producers, registeredReader));
       registeredReader.setLastCollectEpochNanos(startEpochNanos);
     }
   }
@@ -279,15 +299,14 @@ public final class SdkMeterProvider implements MeterProvider, Closeable {
     }
   }
 
-  // TODO - We need to update this to allow multiple resources to be reported.
-  private static class SdkCollectionRegistration implements CollectionRegistration {
+  private static class PerResourceCollectionRegistration implements CollectionRegistration {
     private final List<MetricProducer> metricProducers;
-    private final MeterProviderSharedState sharedState;
+    private final Resource resource;
 
-    private SdkCollectionRegistration(
-        List<MetricProducer> metricProducers, MeterProviderSharedState sharedState) {
+    private PerResourceCollectionRegistration(
+        List<MetricProducer> metricProducers, Resource resource) {
       this.metricProducers = metricProducers;
-      this.sharedState = sharedState;
+      this.resource = resource;
     }
 
     @Override
@@ -295,13 +314,42 @@ public final class SdkMeterProvider implements MeterProvider, Closeable {
       if (metricProducers.isEmpty()) {
         return Collections.emptyList();
       }
-      Resource resource = sharedState.getResource();
       if (metricProducers.size() == 1) {
         return metricProducers.get(0).produce(resource);
       }
       List<MetricData> metricData = new ArrayList<>();
       for (MetricProducer metricProducer : metricProducers) {
         metricData.addAll(metricProducer.produce(resource));
+      }
+      return Collections.unmodifiableList(metricData);
+    }
+  }
+
+  // TODO - We should optimise this now that we've refactored how reader storage works.
+  private static class SdkCollectionRegistration implements CollectionRegistration {
+    private final ConcurrentHashMap<RegisteredReader, CopyOnWriteArrayList<CollectionRegistration>>
+        producers;
+    private final RegisteredReader reader;
+
+    private SdkCollectionRegistration(
+        ConcurrentHashMap<RegisteredReader, CopyOnWriteArrayList<CollectionRegistration>> producers,
+        RegisteredReader reader) {
+      this.producers = producers;
+      this.reader = reader;
+    }
+
+    @Override
+    public Collection<MetricData> collectAllMetrics() {
+      List<CollectionRegistration> metricProducers = producers.get(reader);
+      if (metricProducers == null || metricProducers.isEmpty()) {
+        return Collections.emptyList();
+      }
+      if (metricProducers.size() == 1) {
+        return metricProducers.get(0).collectAllMetrics();
+      }
+      List<MetricData> metricData = new ArrayList<>();
+      for (CollectionRegistration metricProducer : metricProducers) {
+        metricData.addAll(metricProducer.collectAllMetrics());
       }
       return Collections.unmodifiableList(metricData);
     }
