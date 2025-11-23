@@ -13,6 +13,7 @@ import io.opentelemetry.sdk.OpenTelemetrySdk;
 import io.opentelemetry.sdk.entity.internal.SdkEntity;
 import io.opentelemetry.sdk.extension.incubator.entity.internal.ExtendedEntityUtil;
 import io.opentelemetry.sdk.extension.incubator.fileconfig.SdkConfigProvider;
+import io.opentelemetry.sdk.logs.internal.SdkLoggerProviderUtil;
 import io.opentelemetry.sdk.trace.internal.SdkTracerProviderUtil;
 import java.io.Closeable;
 import javax.annotation.Nullable;
@@ -95,8 +96,7 @@ public final class ExtendedOpenTelemetrySdk extends OpenTelemetrySdk
     return ExtendedOpenTelemetrySdk.create(
         OpenTelemetrySdk.builder()
             .setTracerProvider(SdkTracerProviderUtil.withEntity(getSdkTracerProvider(), sdkEntity))
-            // TODO - withEntity
-            .setLoggerProvider(getSdkLoggerProvider())
+            .setLoggerProvider(SdkLoggerProviderUtil.withEntity(getSdkLoggerProvider(), sdkEntity))
             // TODO - withEntity
             .setMeterProvider(getSdkMeterProvider())
             .setPropagators(getPropagators())

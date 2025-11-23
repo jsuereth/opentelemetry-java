@@ -12,12 +12,15 @@ import io.opentelemetry.api.logs.LoggerProvider;
 import io.opentelemetry.sdk.common.Clock;
 import io.opentelemetry.sdk.common.CompletableResultCode;
 import io.opentelemetry.sdk.common.InstrumentationScopeInfo;
+import io.opentelemetry.sdk.entity.internal.EntityUtil;
+import io.opentelemetry.sdk.entity.internal.SdkEntity;
 import io.opentelemetry.sdk.internal.ComponentRegistry;
 import io.opentelemetry.sdk.internal.ExceptionAttributeResolver;
 import io.opentelemetry.sdk.internal.ScopeConfigurator;
 import io.opentelemetry.sdk.logs.internal.LoggerConfig;
 import io.opentelemetry.sdk.resources.Resource;
 import java.io.Closeable;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
@@ -120,6 +123,24 @@ public final class SdkLoggerProvider implements LoggerProvider, Closeable {
             sdkLogger ->
                 sdkLogger.updateLoggerConfig(
                     getLoggerConfig(sdkLogger.getInstrumentationScopeInfo())));
+  }
+
+  /**
+   * Creates a new logger provider, which reports agianst a sub-resource of this logger provider.
+   *
+   * <p>This method is experimental so not public. You may reflectively call it using {@link
+   * SdkLoggerProviderUtil#withEntity(SdkLoggerProvider, SdkEntity)}.
+   */
+  SdkLoggerProvider withEntity(SdkEntity entity) {
+    return new SdkLoggerProvider(
+        // Construct a new resource, ensuring the new entity "wins" conflicts.
+        EntityUtil.addEntity(Resource.builder(), entity).build().merge(sharedState.getResource()),
+        sharedState::getLogLimits,
+        // TODO - Don't shut down all pipelines when the sub-provider is shut down.
+        Collections.singletonList(sharedState.getLogRecordProcessor()),
+        sharedState.getClock(),
+        this.loggerConfigurator,
+        sharedState.getExceptionAttributeResolver());
   }
 
   /**
