@@ -6,6 +6,7 @@
 package io.opentelemetry.sdk.metrics.internal;
 
 import io.opentelemetry.sdk.common.InstrumentationScopeInfo;
+import io.opentelemetry.sdk.entity.internal.SdkEntity;
 import io.opentelemetry.sdk.internal.ScopeConfigurator;
 import io.opentelemetry.sdk.metrics.SdkMeterProvider;
 import io.opentelemetry.sdk.metrics.SdkMeterProviderBuilder;
@@ -123,6 +124,20 @@ public final class SdkMeterProviderUtil {
       method.invoke(sdkMeterProvider);
     } catch (NoSuchMethodException | InvocationTargetException | IllegalAccessException e) {
       throw new IllegalStateException("Error calling resetForTest on SdkMeterProvider", e);
+    }
+  }
+
+  /**
+   * Reflectively construct a nested {@link SdkMeterProvider}, which allows reporting against a
+   * different resource.
+   */
+  public static SdkMeterProvider withEntity(SdkMeterProvider sdkMeterProvider, SdkEntity entity) {
+    try {
+      Method method = SdkMeterProvider.class.getDeclaredMethod("withEntity", SdkEntity.class);
+      method.setAccessible(true);
+      return (SdkMeterProvider) method.invoke(sdkMeterProvider, entity);
+    } catch (NoSuchMethodException | InvocationTargetException | IllegalAccessException e) {
+      throw new IllegalStateException("Error adding AttributesProcessor to ViewBuilder", e);
     }
   }
 }

@@ -12,6 +12,8 @@ import io.opentelemetry.api.metrics.MeterProvider;
 import io.opentelemetry.sdk.common.Clock;
 import io.opentelemetry.sdk.common.CompletableResultCode;
 import io.opentelemetry.sdk.common.InstrumentationScopeInfo;
+import io.opentelemetry.sdk.entity.internal.EntityUtil;
+import io.opentelemetry.sdk.entity.internal.SdkEntity;
 import io.opentelemetry.sdk.internal.ComponentRegistry;
 import io.opentelemetry.sdk.internal.ScopeConfigurator;
 import io.opentelemetry.sdk.metrics.data.MetricData;
@@ -33,6 +35,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
@@ -52,13 +56,44 @@ public final class SdkMeterProvider implements MeterProvider, Closeable {
   private final List<MetricProducer> metricProducers;
   private final MeterProviderSharedState sharedState;
   private final ComponentRegistry<SdkMeter> registry;
+  private final ConcurrentMap<Resource, SdkMeterProvider> nested;
   private final AtomicBoolean isClosed = new AtomicBoolean(false);
+  private final boolean isNested;
 
   private ScopeConfigurator<MeterConfig> meterConfigurator;
 
   /** Returns a new {@link SdkMeterProviderBuilder} for {@link SdkMeterProvider}. */
   public static SdkMeterProviderBuilder builder() {
     return new SdkMeterProviderBuilder();
+  }
+
+  // Only used for creating nested meter providers.
+  private SdkMeterProvider(SdkMeterProvider outer, Resource subResource) {
+    // All other aspects which stay the same.
+    this.registeredViews = outer.registeredViews;
+    this.registeredReaders = outer.registeredReaders;
+    // TODO - Update metric producers.  We need a new way to store/share data.
+    // We are "erasing" too quickly in our storage set up for nested providers.
+    this.metricProducers = outer.metricProducers;
+    this.meterConfigurator = outer.meterConfigurator;
+    // New aspects for the shared provider.
+    this.nested = new ConcurrentHashMap<>();
+    // TODO - create new start time?
+    this.sharedState =
+        MeterProviderSharedState.create(
+            outer.sharedState.getClock(),
+            subResource,
+            outer.sharedState.getExemplarFilter(),
+            outer.sharedState.getStartEpochNanos());
+    this.registry =
+        new ComponentRegistry<>(
+            instrumentationLibraryInfo ->
+                new SdkMeter(
+                    sharedState,
+                    instrumentationLibraryInfo,
+                    registeredReaders,
+                    getMeterConfig(instrumentationLibraryInfo)));
+    this.isNested = true;
   }
 
   SdkMeterProvider(
@@ -69,8 +104,10 @@ public final class SdkMeterProvider implements MeterProvider, Closeable {
       Resource resource,
       ExemplarFilterInternal exemplarFilter,
       ScopeConfigurator<MeterConfig> meterConfigurator) {
+    this.isNested = false;
     long startEpochNanos = clock.now();
     this.registeredViews = registeredViews;
+    this.nested = new ConcurrentHashMap<>();
     this.registeredReaders =
         metricReaders.entrySet().stream()
             .map(
@@ -128,6 +165,19 @@ public final class SdkMeterProvider implements MeterProvider, Closeable {
   }
 
   /**
+   * Constructs a nested MeterProvider that will keep the same export pipeline/registration, but
+   * allow reporting metrics against a different resource.
+   */
+  SdkMeterProvider withEntity(SdkEntity entity) {
+    Resource nestedResource =
+        EntityUtil.createResource(Collections.singletonList(entity))
+            .merge(sharedState.getResource());
+    SdkMeterProvider nestedProvider = new SdkMeterProvider(this, nestedResource);
+    this.nested.put(nestedResource, nestedProvider);
+    return nestedProvider;
+  }
+
+  /**
    * Reset the provider, clearing all registered instruments.
    *
    * <p>Note: not currently stable but available for experimental use via {@link
@@ -157,6 +207,11 @@ public final class SdkMeterProvider implements MeterProvider, Closeable {
    * with this provider. The resulting {@link CompletableResultCode} completes when all complete.
    */
   public CompletableResultCode shutdown() {
+    // For nested meter producers, just track shutodwn, don't force readers to shut down.
+    if (isNested) {
+      isClosed.lazySet(true);
+      return CompletableResultCode.ofSuccess();
+    }
     if (!isClosed.compareAndSet(false, true)) {
       LOGGER.info("Multiple close calls");
       return CompletableResultCode.ofSuccess();
@@ -197,7 +252,7 @@ public final class SdkMeterProvider implements MeterProvider, Closeable {
 
   /** Helper class to expose registered metric exports. */
   private static class LeasedMetricProducer implements MetricProducer {
-
+    // We now store nested registries here, in addition to the current.
     private final ComponentRegistry<SdkMeter> registry;
     private final MeterProviderSharedState sharedState;
     private final RegisteredReader registeredReader;
@@ -224,6 +279,7 @@ public final class SdkMeterProvider implements MeterProvider, Closeable {
     }
   }
 
+  // TODO - We need to update this to allow multiple resources to be reported.
   private static class SdkCollectionRegistration implements CollectionRegistration {
     private final List<MetricProducer> metricProducers;
     private final MeterProviderSharedState sharedState;

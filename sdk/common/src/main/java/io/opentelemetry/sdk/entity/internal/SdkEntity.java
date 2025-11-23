@@ -76,4 +76,46 @@ public final class SdkEntity {
   public static SdkEntityBuilder builder(String entityType) {
     return new SdkEntityBuilder(entityType);
   }
+
+  @Override
+  public int hashCode() {
+    int prime = 31;
+    int result = 1;
+    result = prime * result + entityType.hashCode();
+    result = prime * result + ((schemaUrl == null) ? 0 : schemaUrl.hashCode());
+    result = prime * result + identity.hashCode();
+    result = prime * result + description.hashCode();
+    return result;
+  }
+
+  @Override
+  public boolean equals(Object obj) {
+    if (this == obj) {
+      return true;
+    }
+    if (obj == null) {
+      return false;
+    }
+    if (getClass() != obj.getClass()) {
+      return false;
+    }
+    SdkEntity other = (SdkEntity) obj;
+    if (!entityType.equals(other.entityType)) {
+      return false;
+    }
+    if (schemaUrl == null) {
+      if (other.schemaUrl != null) {
+        return false;
+      }
+    } else if (!schemaUrl.equals(other.schemaUrl)) {
+      return false;
+    }
+    if (!identity.equals(other.identity)) {
+      return false;
+    }
+    if (!description.equals(other.description)) {
+      return false;
+    }
+    return true;
+  }
 }
